@@ -14,8 +14,8 @@ const {
 
 // Public routes
 router.post('/send-otp', otpLimiter, validate(sendOtpSchema), sendOtp);
-router.post('/verify-otp', otpLimiter, validate(verifyOtpSchema), verifyOtp);
-router.post('/register', otpLimiter, validate(registerSchema), register);
+router.post('/verify-otp', authLimiter, validate(verifyOtpSchema), verifyOtp);
+router.post('/register', authLimiter, validate(registerSchema), register);
 router.post('/google', authLimiter, validate(googleAuthSchema), googleAuth);
 router.post('/refresh-token', validate(refreshTokenSchema), refreshToken);
 
