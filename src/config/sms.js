@@ -25,8 +25,8 @@ const sendOTP = async (phoneNumber, otp) => {
       // 1. Set SMS Attributes first to ensure high delivery (Transactional)
       await sns.setSMSAttributes({
         attributes: {
-        //   'DefaultSMSType': 'Transactional',
-          'DefaultSenderID': 'KMITRA' // Max 6 chars, alphanumeric
+          'DefaultSMSType': 'Transactional',
+          // 'DefaultSenderID': 'STELLAR' // Max 6 chars, alphanumeric
         }
       }).promise();
 
