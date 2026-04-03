@@ -1,204 +1,488 @@
-const logger = require('../utils/logger');
-const { verifyAccessToken } = require('../utils/jwt');
-const User = require('../models/User');
-const { Message, Chat } = require('../models/Chat');
+// const logger = require('../utils/logger');
 
-// Track connected users
-const connectedUsers = new Map(); // userId -> socketId
+// // Lazy load models to avoid circular imports
+// let Message, Conversation, User;
 
+// const loadModels = () => {
+//   if (!Message) Message = require('../models/Message');
+//   if (!Conversation) Conversation = require('../models/Conversation');
+//   if (!User) User = require('../models/User');
+// };
+
+// // Store active connections
+// const activeConnections = new Map();
+
+// const initializeSocket = (io) => {
+//   loadModels(); // Load models once when socket is initialized
+
+//   io.on('connection', (socket) => {
+//     logger.info(`✅ User connected: ${socket.id}`);
+
+//     // ─── User Authentication ──────────────────────────────────────────────
+//     socket.on('user:auth', async (data) => {
+//       try {
+//         const { userId } = data;
+        
+//         const user = await User.findById(userId);
+//         if (!user) {
+//           socket.emit('error', { message: 'User not found' });
+//           return;
+//         }
+
+//         activeConnections.set(userId, socket.id);
+//         socket.userId = userId;
+//         socket.userRole = user.role;
+
+//         socket.join(`user:${userId}`);
+//         socket.join(`role:${user.role}`);
+
+//         logger.info(`✅ User authenticated: ${userId} (${user.role})`);
+//         socket.emit('auth:success', { message: 'Authenticated' });
+//       } catch (error) {
+//         logger.error('❌ Auth error:', error);
+//         socket.emit('error', { message: 'Authentication failed' });
+//       }
+//     });
+
+//     // ─── Chat Events ──────────────────────────────────────────────────────
+
+//     socket.on('chat:join', async (data) => {
+//       try {
+//         const { conversationId } = data;
+//         const userId = socket.userId;
+
+//         if (!userId) {
+//           socket.emit('error', { message: 'Not authenticated' });
+//           return;
+//         }
+
+//         const conversation = await Conversation.findById(conversationId);
+//         if (!conversation || !conversation.participants.includes(userId)) {
+//           socket.emit('error', { message: 'Unauthorized' });
+//           return;
+//         }
+
+//         socket.join(`conversation:${conversationId}`);
+//         logger.info(`✅ User ${userId} joined conversation ${conversationId}`);
+//       } catch (error) {
+//         logger.error('❌ Chat join error:', error);
+//         socket.emit('error', { message: 'Failed to join conversation' });
+//       }
+//     });
+
+//     socket.on('message:send', async (data) => {
+//       try {
+//         const { conversationId, recipientId, content, messageType = 'text' } = data;
+//         const senderId = socket.userId;
+
+//         if (!senderId || !conversationId || !content) {
+//           socket.emit('error', { message: 'Invalid message data' });
+//           return;
+//         }
+
+//         let conversation = await Conversation.findById(conversationId);
+//         if (!conversation) {
+//           conversation = new Conversation({
+//             participants: [senderId, recipientId],
+//           });
+//           await conversation.save();
+//         }
+
+//         const message = new Message({
+//           conversationId,
+//           sender: senderId,
+//           recipient: recipientId,
+//           content,
+//           messageType,
+//         });
+
+//         await message.save();
+//         await message.populate('sender', 'name avatar');
+
+//         conversation.lastMessage = message._id;
+//         conversation.lastMessageAt = new Date();
+//         await conversation.save();
+
+//         io.to(`conversation:${conversationId}`).emit('message:new', {
+//           _id: message._id,
+//           conversationId,
+//           sender: message.sender,
+//           recipient: recipientId,
+//           content: message.content,
+//           messageType,
+//           createdAt: message.createdAt,
+//           isRead: false,
+//         });
+
+//         logger.info(`✅ Message sent: ${message._id}`);
+//       } catch (error) {
+//         logger.error('❌ Message send error:', error);
+//         socket.emit('error', { message: 'Failed to send message' });
+//       }
+//     });
+
+//     socket.on('message:read', async (data) => {
+//       try {
+//         const { messageId, conversationId } = data;
+
+//         const message = await Message.findByIdAndUpdate(
+//           messageId,
+//           { isRead: true, readAt: new Date() },
+//           { new: true }
+//         );
+
+//         if (message) {
+//           io.to(`conversation:${conversationId}`).emit('message:read', {
+//             messageId,
+//             readAt: message.readAt,
+//           });
+//         }
+//       } catch (error) {
+//         logger.error('❌ Mark read error:', error);
+//       }
+//     });
+
+//     socket.on('typing:start', (data) => {
+//       const { conversationId } = data;
+//       socket.broadcast.to(`conversation:${conversationId}`).emit('typing:active', {
+//         userId: socket.userId,
+//       });
+//     });
+
+//     socket.on('typing:stop', (data) => {
+//       const { conversationId } = data;
+//       socket.broadcast.to(`conversation:${conversationId}`).emit('typing:inactive', {
+//         userId: socket.userId,
+//       });
+//     });
+
+//     // ─── Offer Events ─────────────────────────────────────────────────────
+
+//     socket.on('offer:status-changed', (data) => {
+//       const { offerId, status, farmerId, buyerId } = data;
+
+//       io.to(`user:${farmerId}`).emit('notification:offer', {
+//         offerId,
+//         status,
+//         message: `Offer status changed to ${status}`,
+//         timestamp: new Date(),
+//       });
+
+//       io.to(`user:${buyerId}`).emit('notification:offer', {
+//         offerId,
+//         status,
+//         message: `Your offer status changed to ${status}`,
+//         timestamp: new Date(),
+//       });
+
+//       logger.info(`✅ Offer status updated: ${offerId} -> ${status}`);
+//     });
+
+//     socket.on('offer:created', (data) => {
+//       const { offerId, farmerId, cropName, buyerName } = data;
+
+//       io.to(`user:${farmerId}`).emit('notification:new-offer', {
+//         offerId,
+//         message: `${buyerName} made an offer on ${cropName}`,
+//         timestamp: new Date(),
+//       });
+
+//       logger.info(`✅ New offer notification: ${offerId}`);
+//     });
+
+//     // ─── Presence Events ──────────────────────────────────────────────────
+
+//     socket.on('user:online', (data) => {
+//       const { userId } = data;
+//       io.emit('presence:online', { userId, timestamp: new Date() });
+//     });
+
+//     socket.on('user:offline', (data) => {
+//       const { userId } = data;
+//       io.emit('presence:offline', { userId, timestamp: new Date() });
+//     });
+
+//     socket.on('notification:send', (data) => {
+//       const { userId, title, message, type } = data;
+
+//       io.to(`user:${userId}`).emit('notification:received', {
+//         title,
+//         message,
+//         type,
+//         timestamp: new Date(),
+//       });
+
+//       logger.info(`✅ Notification sent to ${userId}`);
+//     });
+
+//     // ─── Error & Disconnect ───────────────────────────────────────────────
+
+//     socket.on('error', (error) => {
+//       logger.error('❌ Socket error:', error);
+//     });
+
+//     socket.on('disconnect', () => {
+//       const userId = socket.userId;
+      
+//       if (userId) {
+//         activeConnections.delete(userId);
+//         io.emit('presence:offline', { userId, timestamp: new Date() });
+//         logger.info(`❌ User disconnected: ${userId} (${socket.id})`);
+//       }
+//     });
+//   });
+
+//   logger.info('✅ Socket.io initialized');
+// };
+
+// const getActiveSocket = (userId) => activeConnections.get(userId);
+// const isUserOnline = (userId) => activeConnections.has(userId);
+
+// module.exports = {
+//   initializeSocket,
+//   getActiveSocket,
+//   isUserOnline,
+//   activeConnections,
+// };
+
+'use strict';
+/**
+ * socketHandler.js
+ *
+ * Security model:
+ *   • JWT is verified on the handshake via io.use() middleware — before any event fires.
+ *   • socket.userId / socket.userRole are set from the VERIFIED token, not from client data.
+ *   • The 'user:auth' client event is removed — identity comes from the token only.
+ *   • Room joins are protected: userId from token must match the conversation's participant list.
+ */
+
+const jwt     = require('jsonwebtoken');
+const logger  = require('../utils/logger');
+
+// Lazy-load models to avoid circular-import issues at startup
+let Message, Conversation, User;
+const loadModels = () => {
+  if (!Message)      Message      = require('../models/Message');
+  if (!Conversation) Conversation = require('../models/Conversation');
+  if (!User)         User         = require('../models/User');
+};
+
+/** userId → socketId map for presence tracking */
+const activeConnections = new Map();
+
+// ─── Socket.io initialisation ─────────────────────────────────────────────────
 const initializeSocket = (io) => {
-  // Store io globally for use in controllers
-  global.io = io;
+  loadModels();
 
-  // Authentication middleware
+  // ── JWT Authentication Middleware (runs before any 'connection' event) ──────
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
-      if (!token) return next(new Error('Authentication required'));
+      const token =
+        socket.handshake.auth?.token ||
+        socket.handshake.headers?.authorization?.replace('Bearer ', '');
 
-      const decoded = verifyAccessToken(token);
-      const user = await User.findById(decoded.id).select('name role isActive');
+      if (!token) {
+        return next(new Error('AUTH_REQUIRED: No token provided'));
+      }
 
-      if (!user || !user.isActive) return next(new Error('User not found or inactive'));
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        // If your jwt.js utility adds issuer/audience, uncomment these:
+        // issuer:   'krushimitra-api',
+        // audience: 'krushimitra-app',
+      });
 
-      socket.user = user;
-      socket.userId = user._id.toString();
+      // Verify user is still active in DB (catches banned users)
+      const user = await (User || require('../models/User'))
+        .findById(decoded.id)
+        .select('role status isBanned name');
+
+      if (!user) return next(new Error('AUTH_FAILED: User not found'));
+      if (user.isBanned || user.status === 'banned') {
+        return next(new Error('AUTH_FAILED: Account suspended'));
+      }
+
+      // Attach verified identity to socket — never trust client-sent userId again
+      socket.userId   = decoded.id.toString();
+      socket.userRole = user.role;
+      socket.userName = user.name;
+
       next();
-    } catch (error) {
-      logger.warn(`Socket auth failed: ${error.message}`);
-      next(new Error('Invalid token'));
+    } catch (err) {
+      logger.warn(`Socket auth rejected: ${err.message}`);
+      next(new Error('AUTH_FAILED: Invalid token'));
     }
   });
 
+  // ── Connection handler (only runs for authenticated sockets) ────────────────
   io.on('connection', (socket) => {
-    const userId = socket.userId;
-    connectedUsers.set(userId, socket.id);
+    const { userId, userRole, userName } = socket;
 
-    logger.info(`🔌 Socket connected: ${userId} (${socket.user.name}) [${socket.user.role}]`);
+    logger.info(`✅ Socket connected: ${userId} (${userRole}) [${socket.id}]`);
 
-    // Join personal room
+    // Register in presence map and join personal + role rooms
+    activeConnections.set(userId, socket.id);
     socket.join(`user:${userId}`);
+    socket.join(`role:${userRole}`);
 
-    // Update online status
-    User.findByIdAndUpdate(userId, { lastActiveAt: new Date() }).catch(() => {});
+    // Broadcast online status to mutual contacts (keep room-scoped, not global)
+    socket.to(`role:farmer`).to(`role:buyer`).emit('presence:online', {
+      userId,
+      timestamp: new Date(),
+    });
 
-    // Broadcast online status to contacts
-    socket.broadcast.emit('user_online', { userId, name: socket.user.name });
+    // ── Chat Events ────────────────────────────────────────────────────────────
 
-    // ─── CHAT EVENTS ──────────────────────────────────────────────────────────────────────
-
-    // Join chat room
-    socket.on('join_chat', async ({ chatId }) => {
+    socket.on('chat:join', async ({ conversationId }) => {
       try {
-        const chat = await Chat.findById(chatId);
-        if (!chat) return socket.emit('error', { message: 'Chat not found' });
+        if (!conversationId) return;
 
-        const isParticipant = chat.participants.some((p) => p.toString() === userId);
-        if (!isParticipant) return socket.emit('error', { message: 'Not a participant' });
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) {
+          socket.emit('error', { code: 'NOT_FOUND', message: 'Conversation not found' });
+          return;
+        }
 
-        socket.join(`chat:${chatId}`);
-        logger.debug(`User ${userId} joined chat ${chatId}`);
+        // Only participants can join
+        const isParticipant = conversation.participants
+          .map(String)
+          .includes(userId);
 
-        // Mark messages as read
-        await Message.updateMany(
-          { chat: chatId, sender: { $ne: userId }, 'readBy.user': { $ne: userId } },
-          { $addToSet: { readBy: { user: userId, readAt: new Date() } } }
-        );
+        if (!isParticipant) {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not a participant in this conversation' });
+          return;
+        }
 
-        socket.emit('chat_joined', { chatId });
-      } catch (error) {
-        logger.error('join_chat error:', error);
-        socket.emit('error', { message: 'Failed to join chat' });
+        socket.join(`conversation:${conversationId}`);
+        logger.info(`User ${userId} joined conversation ${conversationId}`);
+      } catch (err) {
+        logger.error('chat:join error:', err);
+        socket.emit('error', { code: 'SERVER_ERROR', message: 'Could not join conversation' });
       }
     });
 
-    // Leave chat room
-    socket.on('leave_chat', ({ chatId }) => {
-      socket.leave(`chat:${chatId}`);
-      logger.debug(`User ${userId} left chat ${chatId}`);
-    });
-
-    // Send message via socket (real-time)
-    socket.on('send_message', async ({ chatId, content, type = 'text' }) => {
+    socket.on('message:send', async ({ conversationId, recipientId, content, messageType = 'text' }) => {
       try {
-        if (!content?.trim()) return;
+        if (!conversationId || !content?.trim()) {
+          socket.emit('error', { code: 'INVALID', message: 'conversationId and content are required' });
+          return;
+        }
 
-        const chat = await Chat.findById(chatId);
-        if (!chat) return socket.emit('error', { message: 'Chat not found' });
-
-        const isParticipant = chat.participants.some((p) => p.toString() === userId);
-        if (!isParticipant) return socket.emit('error', { message: 'Not authorized' });
-
-        const message = await Message.create({
-          chat: chatId,
-          sender: userId,
-          content: content.trim(),
-          type,
-          readBy: [{ user: userId }],
-        });
-
-        await message.populate('sender', 'name avatar role');
-
-        // Update chat last message
-        await Chat.findByIdAndUpdate(chatId, {
-          lastMessage: { content: content.trim(), sender: userId, timestamp: new Date(), type },
-          updatedAt: new Date(),
-        });
-
-        // Broadcast to chat room
-        io.to(`chat:${chatId}`).emit('new_message', {
-          chatId,
-          message: message.toObject(),
-        });
-
-        // Send notification to offline participants
-        chat.participants
-          .filter((p) => p.toString() !== userId)
-          .forEach((recipientId) => {
-            const recipientSocketId = connectedUsers.get(recipientId.toString());
-            if (!recipientSocketId) {
-              // User is offline - push notification handled by NotificationService
-              logger.debug(`User ${recipientId} is offline, push notification queued`);
-            } else {
-              io.to(`user:${recipientId}`).emit('message_notification', {
-                chatId,
-                senderName: socket.user.name,
-                preview: content.substring(0, 100),
-              });
-            }
+        // Ensure conversation exists; create if not
+        let conversation = await Conversation.findById(conversationId);
+        if (!conversation) {
+          if (!recipientId) {
+            socket.emit('error', { code: 'INVALID', message: 'recipientId required to start conversation' });
+            return;
+          }
+          conversation = await Conversation.create({
+            participants: [userId, recipientId],
           });
+          socket.join(`conversation:${conversation._id}`);
+        }
 
-        logger.debug(`Message sent in chat ${chatId} by ${userId}`);
-      } catch (error) {
-        logger.error('send_message socket error:', error);
-        socket.emit('error', { message: 'Failed to send message' });
-      }
-    });
+        // Verify sender is a participant
+        const isParticipant = conversation.participants.map(String).includes(userId);
+        if (!isParticipant) {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorised to send in this conversation' });
+          return;
+        }
 
-    // Typing indicator
-    socket.on('typing', ({ chatId }) => {
-      socket.to(`chat:${chatId}`).emit('user_typing', {
-        chatId,
-        userId,
-        name: socket.user.name,
-      });
-    });
-
-    socket.on('stop_typing', ({ chatId }) => {
-      socket.to(`chat:${chatId}`).emit('user_stop_typing', { chatId, userId });
-    });
-
-    // Message read receipt
-    socket.on('message_read', async ({ chatId, messageId }) => {
-      try {
-        await Message.findByIdAndUpdate(messageId, {
-          $addToSet: { readBy: { user: userId, readAt: new Date() } },
+        // Persist message
+        const message = await Message.create({
+          conversationId: conversation._id,
+          sender:         userId,
+          recipient:      recipientId || conversation.participants.find((p) => String(p) !== userId),
+          content:        content.trim(),
+          messageType,
         });
-        socket.to(`chat:${chatId}`).emit('message_read_receipt', { chatId, messageId, readBy: userId });
-      } catch (error) {
-        logger.error('message_read error:', error);
+
+        await message.populate('sender', 'name avatar');
+
+        // Update conversation metadata
+        conversation.lastMessage   = message._id;
+        conversation.lastMessageAt = new Date();
+        await conversation.save();
+
+        // Broadcast to all room participants (sender included for optimistic-UI confirmation)
+        const payload = {
+          _id:            message._id,
+          conversationId: conversation._id,
+          sender:         message.sender,
+          content:        message.content,
+          messageType,
+          createdAt:      message.createdAt,
+          isRead:         false,
+        };
+        io.to(`conversation:${conversation._id}`).emit('message:new', payload);
+
+      } catch (err) {
+        logger.error('message:send error:', err);
+        socket.emit('error', { code: 'SERVER_ERROR', message: 'Message delivery failed' });
       }
     });
 
-    // ─── OFFER EVENTS ─────────────────────────────────────────────────────────────────────
-
-    socket.on('subscribe_offer', ({ offerId }) => {
-      socket.join(`offer:${offerId}`);
-    });
-
-    // ─── LOCATION TRACKING ──────────────────────────────────────────────────────────────────
-
-    socket.on('update_location', async ({ lat, lng, address }) => {
+    socket.on('message:read', async ({ messageId, conversationId }) => {
       try {
-        await User.findByIdAndUpdate(userId, {
-          'location.coordinates': [parseFloat(lng), parseFloat(lat)],
-          'location.address': address,
-        });
-        logger.debug(`Location updated for user ${userId}`);
-      } catch (error) {
-        logger.error('update_location error:', error);
+        const updated = await Message.findByIdAndUpdate(
+          messageId,
+          { isRead: true, readAt: new Date() },
+          { new: true }
+        );
+        if (updated) {
+          io.to(`conversation:${conversationId}`).emit('message:read', {
+            messageId,
+            readAt: updated.readAt,
+          });
+        }
+      } catch (err) {
+        logger.error('message:read error:', err);
       }
     });
 
-    // ─── DISCONNECT ─────────────────────────────────────────────────────────────────────────
+    socket.on('typing:start', ({ conversationId }) => {
+      if (!conversationId) return;
+      socket.broadcast.to(`conversation:${conversationId}`).emit('typing:active', { userId });
+    });
 
+    socket.on('typing:stop', ({ conversationId }) => {
+      if (!conversationId) return;
+      socket.broadcast.to(`conversation:${conversationId}`).emit('typing:inactive', { userId });
+    });
+
+    // ── Offer Notifications ────────────────────────────────────────────────────
+    // These are server-to-client only — emitted from controllers via global.io
+    // The client should NOT emit offer:status-changed — that's a server responsibility
+
+    // ── Disconnect ─────────────────────────────────────────────────────────────
     socket.on('disconnect', (reason) => {
-      connectedUsers.delete(userId);
-      socket.broadcast.emit('user_offline', { userId });
-      logger.info(`🔔 Socket disconnected: ${userId} (${reason})`);
+      activeConnections.delete(userId);
+      // Scope offline broadcast to users who care (not everyone)
+      socket.to(`role:farmer`).to(`role:buyer`).emit('presence:offline', {
+        userId,
+        timestamp: new Date(),
+      });
+      logger.info(`Socket disconnected: ${userId} [${socket.id}] — ${reason}`);
     });
 
-    socket.on('error', (error) => {
-      logger.error(`Socket error for ${userId}:`, error);
+    socket.on('error', (err) => {
+      logger.error(`Socket error for ${userId}:`, err);
     });
   });
 
-  // Utility: get online users count
-  io.getOnlineCount = () => connectedUsers.size;
-  io.getConnectedUsers = () => Array.from(connectedUsers.keys());
-  io.isUserOnline = (userId) => connectedUsers.has(userId.toString());
-
-  logger.info('✅ Socket.io initialized');
+  logger.info('✅ Socket.io initialised with JWT auth middleware');
 };
 
-module.exports = { initializeSocket, connectedUsers };
+// ─── Utility exports ──────────────────────────────────────────────────────────
+const getActiveSocket = (userId) => activeConnections.get(String(userId));
+const isUserOnline    = (userId) => activeConnections.has(String(userId));
+
+/**
+ * Send a real-time notification to a specific user.
+ * Used by controllers/services that have access to global.io.
+ */
+const emitToUser = (io, userId, event, payload) => {
+  if (!io || !userId) return;
+  io.to(`user:${userId}`).emit(event, payload);
+};
+
+module.exports = { initializeSocket, getActiveSocket, isUserOnline, emitToUser, activeConnections };

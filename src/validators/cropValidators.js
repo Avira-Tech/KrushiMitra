@@ -1,4 +1,5 @@
 const Joi = require('joi');
+const { body, validationResult } = require('express-validator');
 
 const createCropSchema = Joi.object({
   name: Joi.string().min(2).max(100).required().trim(),
@@ -62,4 +63,88 @@ const getCropsSchema = Joi.object({
   search: Joi.string().optional(),
 });
 
-module.exports = { createCropSchema, updateCropSchema, getCropsSchema };
+// const addCropSchema = [
+//   body('name')
+//     .trim()
+//     .notEmpty().withMessage('Crop name is required')
+//     .isLength({ min: 2, max: 100 }).withMessage('Crop name must be 2-100 characters'),
+  
+//   body('category')
+//     .trim()
+//     .notEmpty().withMessage('Category is required')
+//     .isIn(['Cereals', 'Pulses', 'Oilseeds', 'Cash Crops', 'Vegetables', 'Fruits', 'Spices'])
+//     .withMessage('Invalid category'),
+  
+//   body('quantity')
+//     .isFloat({ min: 0.1 }).withMessage('Quantity must be greater than 0'),
+  
+//   body('unit')
+//     .trim()
+//     .notEmpty().withMessage('Unit is required')
+//     .isIn(['kg', 'quintal', 'ton', 'liter', 'piece'])
+//     .withMessage('Invalid unit'),
+  
+//   body('pricePerUnit')
+//     .isFloat({ min: 0.1 }).withMessage('Price must be greater than 0'),
+  
+//   body('description')
+//     .trim()
+//     .isLength({ max: 1000 }).withMessage('Description cannot exceed 1000 characters'),
+  
+//   body('harvestDate')
+//     .isISO8601().withMessage('Invalid harvest date format'),
+  
+//   body('images')
+//     .isArray({ min: 1, max: 5 }).withMessage('At least 1 image required, max 5'),
+  
+//   body('location.latitude')
+//     .isFloat({ min: -90, max: 90 }).withMessage('Invalid latitude'),
+  
+//   body('location.longitude')
+//     .isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
+  
+//   body('soilType')
+//     .optional()
+//     .trim()
+//     .isIn(['Black', 'Red', 'Laterite', 'Alluvial', 'Rocky'])
+//     .withMessage('Invalid soil type'),
+  
+//   body('pesticides')
+//     .optional()
+//     .isBoolean().withMessage('Pesticides must be boolean'),
+// ];
+const addCropSchema = [
+  body('name')
+    .trim()
+    .notEmpty().withMessage('Crop name is required'),
+  
+  body('category')
+    .trim()
+    .notEmpty().withMessage('Category is required')
+    // MUST MATCH MONGOOSE ENUM:
+    .isIn(['grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other'])
+    .withMessage('Invalid category'),
+  
+  body('quantity')
+    .isFloat({ min: 0.1 }).withMessage('Quantity must be greater than 0'),
+  
+  // Change 'pricePerUnit' to 'pricePerKg' to match your payload
+  body('pricePerKg')
+    .isFloat({ min: 0.1 }).withMessage('Price must be greater than 0'),
+  
+  body('quality')
+    .isIn(['A', 'B', 'C']).withMessage('Invalid quality grade'),
+
+  body('harvestDate')
+    .isISO8601().withMessage('Invalid harvest date format'),
+  
+  body('images')
+    .isArray({ min: 1 }).withMessage('At least 1 image required'),
+  
+  body('location.latitude')
+    .isFloat().withMessage('Invalid latitude'),
+  
+  body('location.longitude')
+    .isFloat().withMessage('Invalid longitude'),
+];
+module.exports = { createCropSchema, updateCropSchema, getCropsSchema, addCropSchema };

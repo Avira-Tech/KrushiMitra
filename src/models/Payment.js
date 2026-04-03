@@ -1,16 +1,12 @@
 const mongoose = require('mongoose');
-const { generateReceiptId } = require('../utils/helpers');
 
 const paymentSchema = new mongoose.Schema(
   {
-    receiptId: {
-      type: String,
-      unique: true,
-    },
     contract: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Contract',
       required: true,
+      index: true,
     },
     payer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,88 +21,71 @@ const paymentSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
-      min: [1, 'Amount must be positive'],
-    },
-    platformFee: {
-      type: Number,
-      default: 0,
-    },
-    netAmount: {
-      type: Number,
+      min: 0,
     },
     currency: {
       type: String,
       default: 'INR',
-    },
-    type: {
-      type: String,
-      enum: ['escrow_deposit', 'escrow_release', 'refund', 'platform_fee'],
-      required: true,
+      enum: ['INR', 'USD'],
     },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'authorized', 'captured', 'released', 'refunded', 'failed', 'cancelled'],
-      default: 'pending',
+      enum: ['initiated', 'authorized', 'captured', 'failed', 'refunded'],
+      default: 'initiated',
+      index: true,
     },
-    // Stripe
+    type: {
+      type: String,
+      enum: ['stripe', 'upi', 'bank_transfer'],
+      default: 'stripe',
+    },
+    // Stripe payment details
     stripe: {
       paymentIntentId: String,
-      chargeId: String,
       clientSecret: String,
-      paymentMethodId: String,
-      transferId: String,
+      chargeId: String,
+      receiptUrl: String,
     },
-    // GST Details
-    gst: {
-      gstNumber: String,
-      cgst: Number,
-      sgst: Number,
-      igst: Number,
-      totalGst: Number,
+    // UPI payment details
+    upi: {
+      transactionId: String,
+      upiId: String,
     },
-    // Receipt details
-    receipt: {
-      farmerName: String,
-      buyerName: String,
-      cropName: String,
-      quantity: Number,
-      pricePerKg: Number,
-      contractDate: Date,
-      deliveryDate: Date,
+    // Bank transfer details
+    bankTransfer: {
+      transactionId: String,
+      referenceNumber: String,
     },
-    // Metadata
-    description: String,
+    // Generic metadata
+    metadata: {
+      type: Map,
+      of: String,
+    },
+    // Refund information
+    refund: {
+      status: {
+        type: String,
+        enum: ['none', 'partial', 'full'],
+        default: 'none',
+      },
+      amount: Number,
+      reason: String,
+      refundId: String,
+      refundedAt: Date,
+    },
+    notes: String,
     failureReason: String,
-    processedAt: Date,
-    releasedAt: Date,
-    refundedAt: Date,
-    refundReason: String,
-    ipAddress: String,
-    userAgent: String,
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
   }
 );
 
-paymentSchema.index({ contract: 1 });
-paymentSchema.index({ payer: 1, status: 1 });
-paymentSchema.index({ payee: 1, status: 1 });
-paymentSchema.index({ receiptId: 1 });
-paymentSchema.index({ 'stripe.paymentIntentId': 1 });
-paymentSchema.index({ createdAt: -1 });
-
-paymentSchema.pre('save', function (next) {
-  if (this.isNew && !this.receiptId) {
-    this.receiptId = generateReceiptId();
-  }
-  if (this.isNew) {
-    this.platformFee = parseFloat((this.amount * 0.02).toFixed(2));
-    this.netAmount = parseFloat((this.amount - this.platformFee).toFixed(2));
-  }
-  next();
-});
+// Indexes
+paymentSchema.index({ contract: 1, status: 1 });
+paymentSchema.index({ payer: 1, createdAt: -1 });
+paymentSchema.index({ payee: 1, createdAt: -1 });
+paymentSchema.index({ status: 1, createdAt: -1 });
+paymentSchema.index({ 'stripe.paymentIntentId': 1 }, { sparse: true });
 
 module.exports = mongoose.model('Payment', paymentSchema);

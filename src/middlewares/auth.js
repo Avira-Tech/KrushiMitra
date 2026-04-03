@@ -1,6 +1,5 @@
-const { verifyAccessToken } = require('../utils/jwt');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { sendUnauthorized, sendForbidden } = require('../utils/apiResponse');
 const logger = require('../utils/logger');
 
 /**
@@ -8,50 +7,27 @@ const logger = require('../utils/logger');
  */
 const protect = async (req, res, next) => {
   try {
-    let token;
-
-    if (req.headers.authorization?.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies?.accessToken) {
-      token = req.cookies.accessToken;
-    }
+    const token = req.headers.authorization?.split(' ')[1]; // Extract Bearer token
 
     if (!token) {
-      return sendUnauthorized(res, 'No authentication token provided');
+      return res.status(401).json({
+        success: false,
+        error: 'No authentication token provided',
+      });
     }
 
-    let decoded;
-    try {
-      decoded = verifyAccessToken(token);
-    } catch (err) {
-      if (err.name === 'TokenExpiredError') {
-        return sendUnauthorized(res, 'Token expired. Please refresh.');
-      }
-      return sendUnauthorized(res, 'Invalid token');
-    }
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select('-password -otp -refreshToken');
-
-    if (!user) {
-      return sendUnauthorized(res, 'User not found');
-    }
-
-    if (!user.isActive) {
-      return sendForbidden(res, 'Account has been deactivated');
-    }
-
-    if (user.isBanned) {
-      return sendForbidden(res, `Account banned: ${user.banReason || 'Policy violation'}`);
-    }
-
-    // Update last active
-    await User.findByIdAndUpdate(decoded.id, { lastActiveAt: new Date() }, { new: false });
-
-    req.user = user;
+    // Attach user info to request
+    req.user = decoded;
     next();
   } catch (error) {
-    logger.error('Auth middleware error:', error);
-    return sendUnauthorized(res, 'Authentication failed');
+    logger.error('❌ Token verification failed:', error.message);
+    return res.status(401).json({
+      success: false,
+      error: error.message === 'jwt expired' ? 'Token expired' : 'Invalid token',
+    });
   }
 };
 
@@ -61,10 +37,30 @@ const protect = async (req, res, next) => {
 const restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user?.role)) {
-      return sendForbidden(res, `Access restricted to: ${roles.join(', ')}`);
+      logger.warn(
+        `Unauthorized role access: User ${req.user?.id} attempted ${req.method} ${req.path}`
+      );
+      return res.status(403).json({
+        success: false,
+        error: `Access restricted to: ${roles.join(', ')}`,
+      });
     }
     next();
   };
+};
+
+/**
+ * Admin-only routes
+ */
+const adminOnly = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    logger.error(`Admin access violation: User ${req.user?.id} at ${req.path}`);
+    return res.status(403).json({
+      success: false,
+      error: 'Admin access required',
+    });
+  }
+  next();
 };
 
 /**
@@ -72,7 +68,10 @@ const restrictTo = (...roles) => {
  */
 const requireVerified = (req, res, next) => {
   if (!req.user?.isVerified) {
-    return sendForbidden(res, 'Account verification required. Please wait for admin approval.');
+    return res.status(403).json({
+      success: false,
+      error: 'Account verification required. Please wait for admin approval.',
+    });
   }
   next();
 };
@@ -84,13 +83,20 @@ const optionalAuth = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (token) {
-      const decoded = verifyAccessToken(token);
-      req.user = await User.findById(decoded.id).select('-password -otp -refreshToken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = decoded;
     }
   } catch (err) {
-    // Ignore errors for optional auth
+    // Silently ignore errors for optional auth
+    logger.debug('Optional auth token invalid:', err.message);
   }
   next();
 };
 
-module.exports = { protect, restrictTo, requireVerified, optionalAuth };
+module.exports = {
+  protect,
+  restrictTo,
+  requireVerified,
+  optionalAuth,
+  adminOnly,
+};

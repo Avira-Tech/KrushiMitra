@@ -1,257 +1,765 @@
-const Offer = require('../models/Offer');
-const Crop = require('../models/Crop');
+// const Offer = require('../models/Offer');
+// const Crop = require('../models/Crop');
+// const User = require('../models/User');
+// const Contract = require('../models/Contract');
+// const { validationResult } = require('express-validator');
+// const logger = require('../utils/logger');
+// const sanitizer = require('../utils/sanitizer');
+
+// /**
+//  * Get all offers (for buyer's offers or farmer's received offers)
+//  * GET /api/v1/offers
+//  */
+// const getOffers = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+//     const userRole = req.user.role;
+//     const { status, skip = 0, limit = 20 } = req.query;
+
+//     let filter = {};
+
+//     // Farmer sees offers received for their crops
+//     if (userRole === 'farmer') {
+//       filter.farmer = userId;
+//     }
+//     // Buyer sees offers they made
+//     else if (userRole === 'buyer') {
+//       filter.buyer = userId;
+//     }
+
+//     if (status) {
+//       filter.status = status;
+//     }
+
+//     const offers = await Offer.find(filter)
+//       .populate('crop', 'name category images pricePerUnit')
+//       .populate('farmer', 'name phone email avatar')
+//       .populate('buyer', 'name phone email avatar')
+//       .sort({ createdAt: -1 })
+//       .skip(parseInt(skip))
+//       .limit(parseInt(limit));
+
+//     const total = await Offer.countDocuments(filter);
+
+//     return res.status(200).json({
+//       success: true,
+//       data: offers,
+//       pagination: {
+//         total,
+//         skip: parseInt(skip),
+//         limit: parseInt(limit),
+//         pages: Math.ceil(total / parseInt(limit)),
+//       },
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error fetching offers:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: 'Failed to fetch offers',
+//     });
+//   }
+// };
+
+// /**
+//  * Get offer detail
+//  * GET /api/v1/offers/:id
+//  */
+// const getOfferDetail = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const userId = req.user.id;
+
+//     const offer = await Offer.findById(id)
+//       .populate('crop', 'name category images pricePerUnit quantity availableQuantity')
+//       .populate('farmer', 'name phone email avatar rating')
+//       .populate('buyer', 'name phone email avatar rating');
+
+//     if (!offer) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Offer not found',
+//       });
+//     }
+
+//     // Verify user is part of this offer
+//     if (offer.farmer._id.toString() !== userId && offer.buyer._id.toString() !== userId) {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Unauthorized to view this offer',
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       data: offer,
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error fetching offer detail:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: 'Failed to fetch offer details',
+//     });
+//   }
+// };
+
+// /**
+//  * Make offer on crop
+//  * POST /api/v1/offers
+//  */
+// const makeOffer = async (req, res) => {
+//   try {
+//     const errors = validationResult(req);
+//     if (!errors.isEmpty()) {
+//       return res.status(400).json({
+//         success: false,
+//         errors: errors.array().map(e => ({
+//           field: e.param,
+//           message: e.msg,
+//         })),
+//       });
+//     }
+
+//     const buyerId = req.user.id;
+//     const { cropId, quantity, pricePerUnit, deliveryLocation, deliveryDate, paymentTerms, notes } = req.body;
+
+//     // Find crop
+//     const crop = await Crop.findById(cropId).populate('farmer');
+//     if (!crop) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Crop not found',
+//       });
+//     }
+
+//     // ✅ Verify buyer is not the crop owner
+//     if (crop.farmer._id.toString() === buyerId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Cannot make offer on your own crop',
+//       });
+//     }
+
+//     // ✅ Check available quantity
+//     if (quantity > crop.availableQuantity) {
+//       return res.status(400).json({
+//         success: false,
+//         error: `Only ${crop.availableQuantity} ${crop.unit} available`,
+//       });
+//     }
+
+//     // ✅ Verify buyer exists and is a buyer
+//     const buyer = await User.findById(buyerId);
+//     if (!buyer) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Buyer not found',
+//       });
+//     }
+
+//     if (buyer.role !== 'buyer') {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Only buyers can make offers',
+//       });
+//     }
+
+//     // Calculate total amount
+//     const totalAmount = parseFloat(quantity) * parseFloat(pricePerUnit);
+
+//     // Create offer
+//     const offer = new Offer({
+//       crop: cropId,
+//       farmer: crop.farmer._id,
+//       buyer: buyerId,
+//       quantity: parseFloat(quantity),
+//       pricePerUnit: parseFloat(pricePerUnit),
+//       totalAmount,
+//       deliveryLocation: sanitizer.sanitizeString(deliveryLocation),
+//       deliveryDate: new Date(deliveryDate),
+//       paymentTerms,
+//       notes: sanitizer.sanitizeString(notes),
+//       status: 'pending',
+//       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+//     });
+
+//     await offer.save();
+
+//     // Populate references
+//     await offer.populate([
+//       { path: 'crop', select: 'name category images' },
+//       { path: 'farmer', select: 'name phone email' },
+//       { path: 'buyer', select: 'name phone email' },
+//     ]);
+
+//     logger.info(`✅ Offer created by buyer ${buyerId}:`, offer._id);
+
+//     return res.status(201).json({
+//       success: true,
+//       message: 'Offer created successfully',
+//       data: offer,
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error making offer:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to make offer',
+//     });
+//   }
+// };
+
+// /**
+//  * Accept offer
+//  * POST /api/v1/offers/:id/accept
+//  */
+// const acceptOffer = async (req, res) => {
+//   try {
+//     const { id: offerId } = req.params;
+//     const farmerId = req.user.id;
+
+//     // Find offer
+//     const offer = await Offer.findById(offerId).populate(['crop', 'farmer', 'buyer']);
+//     if (!offer) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Offer not found',
+//       });
+//     }
+
+//     // ✅ Verify farmer owns the crop
+//     if (offer.farmer._id.toString() !== farmerId) {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Only the farmer can accept/reject offers',
+//       });
+//     }
+
+//     // ✅ Check offer status
+//     if (offer.status !== 'pending') {
+//       return res.status(400).json({
+//         success: false,
+//         error: `Offer is already ${offer.status}`,
+//       });
+//     }
+
+//     // ✅ Check offer expiration
+//     if (new Date() > offer.expiresAt) {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Offer has expired',
+//       });
+//     }
+
+//     // Update offer status
+//     offer.status = 'accepted';
+//     offer.acceptedAt = new Date();
+//     await offer.save();
+
+//     // Create contract
+//     const contract = new Contract({
+//       contractId: `CTR-${Date.now()}`,
+//       offer: offerId,
+//       crop: offer.crop._id,
+//       farmer: offer.farmer._id,
+//       buyer: offer.buyer._id,
+//       quantity: offer.quantity,
+//       unit: offer.crop.unit,
+//       pricePerUnit: offer.pricePerUnit,
+//       totalAmount: offer.totalAmount,
+//       deliveryLocation: offer.deliveryLocation,
+//       deliveryDate: offer.deliveryDate,
+//       paymentTerms: offer.paymentTerms,
+//       status: 'pending',
+//       payment: {
+//         status: 'pending',
+//         amount: offer.totalAmount,
+//       },
+//     });
+
+//     await contract.save();
+
+//     // Populate contract
+//     await contract.populate([
+//       { path: 'crop', select: 'name category images' },
+//       { path: 'farmer', select: 'name phone email' },
+//       { path: 'buyer', select: 'name phone email' },
+//     ]);
+
+//     logger.info(`✅ Offer accepted by farmer ${farmerId}:`, offerId);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: 'Offer accepted. Contract created.',
+//       data: {
+//         offer: {
+//           _id: offer._id,
+//           status: 'accepted',
+//         },
+//         contract,
+//       },
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error accepting offer:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to accept offer',
+//     });
+//   }
+// };
+
+// /**
+//  * Reject offer
+//  * POST /api/v1/offers/:id/reject
+//  */
+// const rejectOffer = async (req, res) => {
+//   try {
+//     const { id: offerId } = req.params;
+//     const { reason } = req.body;
+//     const farmerId = req.user.id;
+
+//     const offer = await Offer.findById(offerId);
+//     if (!offer) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Offer not found',
+//       });
+//     }
+
+//     if (offer.farmer.toString() !== farmerId) {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Only the farmer can reject this offer',
+//       });
+//     }
+
+//     if (offer.status !== 'pending') {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Only pending offers can be rejected',
+//       });
+//     }
+
+//     offer.status = 'rejected';
+//     offer.rejectionReason = sanitizer.sanitizeString(reason);
+//     await offer.save();
+
+//     logger.info(`✅ Offer rejected by farmer ${farmerId}:`, offerId);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: 'Offer rejected',
+//       data: offer,
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error rejecting offer:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: 'Failed to reject offer',
+//     });
+//   }
+// };
+
+// /**
+//  * Cancel offer (buyer can cancel their own offers)
+//  * POST /api/v1/offers/:id/cancel
+//  */
+// const cancelOffer = async (req, res) => {
+//   try {
+//     const { id: offerId } = req.params;
+//     const buyerId = req.user.id;
+
+//     const offer = await Offer.findById(offerId);
+//     if (!offer) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Offer not found',
+//       });
+//     }
+
+//     if (offer.buyer.toString() !== buyerId) {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Only the buyer can cancel this offer',
+//       });
+//     }
+
+//     if (!['pending', 'accepted'].includes(offer.status)) {
+//       return res.status(400).json({
+//         success: false,
+//         error: `Cannot cancel ${offer.status} offer`,
+//       });
+//     }
+
+//     offer.status = 'cancelled';
+//     await offer.save();
+
+//     logger.info(`✅ Offer cancelled by buyer ${buyerId}:`, offerId);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: 'Offer cancelled',
+//       data: offer,
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error cancelling offer:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: 'Failed to cancel offer',
+//     });
+//   }
+// };
+
+// module.exports = {
+//   getOffers,
+//   getOfferDetail,
+//   makeOffer,
+//   acceptOffer,
+//   rejectOffer,
+//   cancelOffer,
+// };
+
+'use strict';
+/**
+ * offerController.js
+ * All prices use pricePerKg consistently (matches Crop model and frontend).
+ * acceptOffer delegates to transactionOfferAcceptance for atomic DB operations.
+ */
+
+const Offer    = require('../models/Offer');
+const Crop     = require('../models/Crop');
+const User     = require('../models/User');
 const Contract = require('../models/Contract');
-const NotificationService = require('../services/notificationService');
-const { parsePagination } = require('../utils/helpers');
-const { sendSuccess, sendCreated, sendError, sendNotFound, sendForbidden, sendPaginated } = require('../utils/apiResponse');
-const logger = require('../utils/logger');
+const { validationResult } = require('express-validator');
+const logger   = require('../utils/logger');
+const sanitizer = require('../utils/sanitizer');
+const { transactionOfferAcceptance } = require('../services/transactionService');
+const NotificationService            = require('../services/notificationService');
 
-// ─── CREATE OFFER ─────────────────────────────────────────────────────────────────────────
-const createOffer = async (req, res) => {
-  const { cropId, quantity, offeredPrice, message } = req.body;
-  const buyer = req.user;
+// ─── GET /api/v1/offers ───────────────────────────────────────────────────────
+const getOffers = async (req, res) => {
+  try {
+    const userId   = req.user.id;
+    const userRole = req.user.role;
+    const { status, skip = 0, limit = 20 } = req.query;
 
-  const crop = await Crop.findById(cropId).populate('farmer', 'name phone');
-  if (!crop) return sendNotFound(res, 'Crop not found');
-  if (!crop.isAvailable || crop.status !== 'active') {
-    return sendError(res, { message: 'Crop is not available for offers', statusCode: 400 });
+    const filter = {};
+    if (userRole === 'farmer') filter.farmer = userId;
+    else if (userRole === 'buyer') filter.buyer = userId;
+    if (status) filter.status = status;
+
+    const [offers, total] = await Promise.all([
+      Offer.find(filter)
+        .populate('crop',   'name category images pricePerKg quantity availableQuantity')
+        .populate('farmer', 'name phone email avatar rating')
+        .populate('buyer',  'name phone email avatar rating')
+        .sort({ createdAt: -1 })
+        .skip(parseInt(skip))
+        .limit(parseInt(limit)),
+      Offer.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: offers,
+      pagination: {
+        total,
+        skip:  parseInt(skip),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (err) {
+    logger.error('getOffers error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch offers' });
   }
-  if (crop.farmer._id.toString() === buyer._id.toString()) {
-    return sendForbidden(res, 'Cannot make offer on your own crop');
+};
+
+// ─── GET /api/v1/offers/:id ───────────────────────────────────────────────────
+const getOfferDetail = async (req, res) => {
+  try {
+    const offer = await Offer.findById(req.params.id)
+      .populate('crop',   'name category images pricePerKg quantity availableQuantity')
+      .populate('farmer', 'name phone email avatar rating')
+      .populate('buyer',  'name phone email avatar rating');
+
+    if (!offer) return res.status(404).json({ success: false, error: 'Offer not found' });
+
+    const userId = req.user.id;
+    const isParty =
+      offer.farmer._id.toString() === userId ||
+      offer.buyer._id.toString()  === userId;
+
+    if (!isParty) return res.status(403).json({ success: false, error: 'Unauthorized' });
+
+    return res.status(200).json({ success: true, data: offer });
+  } catch (err) {
+    logger.error('getOfferDetail error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch offer' });
   }
-  if (quantity < crop.minimumOrder) {
-    return sendError(res, { message: `Minimum order quantity is ${crop.minimumOrder} kg`, statusCode: 400 });
-  }
-  if (quantity > crop.availableQuantity) {
-    return sendError(res, { message: `Only ${crop.availableQuantity} kg available`, statusCode: 400 });
-  }
+};
 
-  // Check for existing pending offer from same buyer
-  const existingOffer = await Offer.findOne({ crop: cropId, buyer: buyer._id, status: 'pending' });
-  if (existingOffer) {
-    return sendError(res, { message: 'You already have a pending offer for this crop', statusCode: 409 });
-  }
+// ─── POST /api/v1/offers ──────────────────────────────────────────────────────
+const makeOffer = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array().map((e) => ({ field: e.param, message: e.msg })),
+      });
+    }
 
-  const offer = await Offer.create({
-    crop: cropId,
-    farmer: crop.farmer._id,
-    buyer: buyer._id,
-    quantity,
-    offeredPrice,
-    message,
-    negotiationHistory: [{ by: 'buyer', action: 'offer', price: offeredPrice, message }],
-  });
-
-  await Crop.findByIdAndUpdate(cropId, { $inc: { offerCount: 1 } });
-
-  await offer.populate([
-    { path: 'crop', select: 'name pricePerKg quality images' },
-    { path: 'buyer', select: 'name phone' },
-    { path: 'farmer', select: 'name phone' },
-  ]);
-
-  // Notify farmer
-  await NotificationService.notifyNewOffer(offer, crop, crop.farmer, buyer);
-
-  // Emit socket event
-  if (global.io) {
-    global.io.to(`user:${crop.farmer._id}`).emit('new_offer', {
-      offerId: offer._id,
-      cropName: crop.name,
-      buyerName: buyer.name,
-      price: offeredPrice,
+    const buyerId = req.user.id;
+    // Accept both pricePerKg (frontend) and pricePerUnit (legacy) for compatibility
+    const {
+      cropId,
       quantity,
+      pricePerKg,
+      pricePerUnit,            // fallback alias
+      deliveryLocation,
+      deliveryDate,
+      paymentTerms,
+      message,
+    } = req.body;
+
+    const resolvedPrice = parseFloat(pricePerKg || pricePerUnit);
+    if (!resolvedPrice || resolvedPrice <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid pricePerKg is required' });
+    }
+
+    // Validate crop exists
+    const crop = await Crop.findById(cropId).populate('farmer');
+    if (!crop) return res.status(404).json({ success: false, error: 'Crop not found' });
+
+    if (crop.farmer._id.toString() === buyerId) {
+      return res.status(400).json({ success: false, error: 'Cannot make offer on your own crop' });
+    }
+
+    const parsedQty = parseFloat(quantity);
+    if (parsedQty > crop.availableQuantity) {
+      return res.status(400).json({
+        success: false,
+        error: `Only ${crop.availableQuantity} kg available`,
+      });
+    }
+
+    // Validate buyer role
+    const buyer = await User.findById(buyerId);
+    if (!buyer || buyer.role !== 'buyer') {
+      return res.status(403).json({ success: false, error: 'Only buyers can make offers' });
+    }
+
+    const totalAmount = parseFloat((parsedQty * resolvedPrice).toFixed(2));
+
+    const offer = new Offer({
+      crop:             cropId,
+      farmer:           crop.farmer._id,
+      buyer:            buyerId,
+      quantity:         parsedQty,
+      pricePerKg:       resolvedPrice,
+      totalAmount,
+      deliveryLocation: deliveryLocation ? sanitizer.sanitizeString(deliveryLocation) : undefined,
+      deliveryDate:     deliveryDate ? new Date(deliveryDate) : undefined,
+      paymentTerms:     paymentTerms || 'KrushiMitra Secure Escrow',
+      message:          message ? sanitizer.sanitizeString(message) : undefined,
+      status:           'pending',
+      expiresAt:        new Date(Date.now() + 48 * 60 * 60 * 1000),
+    });
+
+    await offer.save();
+
+    await offer.populate([
+      { path: 'crop',   select: 'name category images pricePerKg' },
+      { path: 'farmer', select: 'name phone email' },
+      { path: 'buyer',  select: 'name phone email' },
+    ]);
+
+    // Notify farmer about new offer
+    NotificationService.notifyNewOffer(offer, crop, crop.farmer, buyer).catch(logger.error);
+
+    logger.info(`✅ Offer created: ${offer._id} by buyer ${buyerId}`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Offer submitted successfully',
+      data: offer,
+    });
+  } catch (err) {
+    logger.error('makeOffer error:', err);
+    return res.status(500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Failed to create offer',
     });
   }
-
-  logger.info(`Offer created: ${offer._id} by buyer ${buyer._id}`);
-
-  return sendCreated(res, {
-    message: 'Offer sent successfully! Farmer will be notified.',
-    data: { offer },
-  });
 };
 
-// ─── UPDATE OFFER (Accept/Reject/Counter/Cancel) ──────────────────────────────────
-const updateOffer = async (req, res) => {
-  const { action, counterPrice, message, reason } = req.body;
-  const user = req.user;
+// ─── POST /api/v1/offers/:id/accept ──────────────────────────────────────────
+/**
+ * Delegates to transactionOfferAcceptance for atomic:
+ *   1. Offer status → accepted
+ *   2. Crop availableQuantity -= offer.quantity  (prevents overselling)
+ *   3. Contract creation
+ * All three writes happen inside a single MongoDB session/transaction.
+ */
+const acceptOffer = async (req, res) => {
+  try {
+    const { id: offerId } = req.params;
+    const farmerId = req.user.id;
 
-  const offer = await Offer.findById(req.params.id)
-    .populate('crop', 'name pricePerKg images')
-    .populate('farmer', 'name phone')
-    .populate('buyer', 'name phone');
+    // Pre-flight checks before entering the transaction
+    const offer = await Offer.findById(offerId).populate('farmer');
+    if (!offer) return res.status(404).json({ success: false, error: 'Offer not found' });
 
-  if (!offer) return sendNotFound(res, 'Offer not found');
+    if (offer.farmer._id.toString() !== farmerId) {
+      return res.status(403).json({ success: false, error: 'Only the crop owner can accept offers' });
+    }
+    if (offer.status !== 'pending') {
+      return res.status(400).json({ success: false, error: `Offer is already ${offer.status}` });
+    }
+    if (new Date() > offer.expiresAt) {
+      return res.status(400).json({ success: false, error: 'Offer has expired' });
+    }
 
-  const isFarmer = offer.farmer._id.toString() === user._id.toString();
-  const isBuyer = offer.buyer._id.toString() === user._id.toString();
+    // Execute atomic transaction: accept offer + decrement stock + create contract
+    const contract = await transactionOfferAcceptance(offerId);
 
-  if (!isFarmer && !isBuyer) return sendForbidden(res, 'Not authorized');
-  if (['accepted', 'rejected', 'contracted'].includes(offer.status)) {
-    return sendError(res, { message: `Offer is already ${offer.status}`, statusCode: 400 });
-  }
+    // Populate contract for response
+    await contract.populate([
+      { path: 'farmer', select: 'name phone email' },
+      { path: 'buyer',  select: 'name phone email' },
+      { path: 'crop',   select: 'name images' },
+    ]);
 
-  const historyEntry = {
-    by: isFarmer ? 'farmer' : 'buyer',
-    action,
-    price: counterPrice || offer.offeredPrice,
-    message,
-    timestamp: new Date(),
-  };
+    // Notify buyer
+    NotificationService.notifyOfferAccepted(offer, { name: offer.cropName }, offer.farmer, { _id: offer.buyer }).catch(logger.error);
 
-  switch (action) {
-    case 'accept': {
-      if (!isFarmer) return sendForbidden(res, 'Only farmer can accept offers');
-      offer.status = 'accepted';
+    logger.info(`✅ Offer accepted: ${offerId}, contract: ${contract._id}`);
 
-      // Auto-generate contract
-      const contract = await Contract.create({
-        offer: offer._id,
-        crop: offer.crop._id,
-        farmer: offer.farmer._id,
-        buyer: offer.buyer._id,
-        terms: {
-          cropName: offer.crop.name,
-          quantity: offer.quantity,
-          pricePerKg: offer.counterOffer?.price || offer.offeredPrice,
-          totalAmount: offer.totalAmount,
-          deliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          paymentTerms: '50% advance, 50% on delivery',
-          qualityGrade: offer.crop.quality,
+    return res.status(200).json({
+      success: true,
+      message: 'Offer accepted. Contract created.',
+      data: {
+        offer:    { _id: offer._id, status: 'accepted' },
+        contract: {
+          _id:         contract._id,
+          contractId:  contract.contractId,
+          cropName:    contract.terms?.cropName,
+          farmerName:  contract.farmer?.name,
+          buyerName:   contract.buyer?.name,
+          quantity:    contract.terms?.quantity,
+          pricePerKg:  contract.terms?.pricePerKg,
+          totalAmount: contract.terms?.totalAmount,
+          status:      contract.status,
         },
-      });
-
-      offer.status = 'contracted';
-      offer.contract = contract._id;
-
-      // Update crop available quantity
-      await Crop.findByIdAndUpdate(offer.crop._id, {
-        $inc: { availableQuantity: -offer.quantity },
-      });
-
-      await NotificationService.notifyOfferAccepted(offer, offer.crop, offer.farmer, offer.buyer);
-      await NotificationService.notifyContractCreated(contract, offer.farmer._id, offer.buyer._id);
-
-      if (global.io) {
-        global.io.to(`user:${offer.buyer._id}`).emit('offer_accepted', {
-          offerId: offer._id,
-          contractId: contract._id,
-          message: 'Your offer was accepted! Contract generated.',
-        });
-      }
-
-      offer.negotiationHistory.push(historyEntry);
-      await offer.save();
-
-      return sendSuccess(res, {
-        message: 'Offer accepted! Contract has been generated.',
-        data: { offer, contract },
-      });
-    }
-
-    case 'reject': {
-      if (!isFarmer) return sendForbidden(res, 'Only farmer can reject offers');
-      offer.status = 'rejected';
-      offer.rejectionReason = reason;
-      offer.rejectedBy = 'farmer';
-      offer.negotiationHistory.push(historyEntry);
-      await offer.save();
-
-      await NotificationService.notifyOfferRejected(offer, offer.crop, offer.farmer, offer.buyer);
-
-      if (global.io) {
-        global.io.to(`user:${offer.buyer._id}`).emit('offer_rejected', { offerId: offer._id });
-      }
-
-      return sendSuccess(res, { message: 'Offer rejected', data: { offer } });
-    }
-
-    case 'counter': {
-      if (!counterPrice) return sendError(res, { message: 'Counter price is required', statusCode: 400 });
-      offer.status = 'countered';
-      offer.counterOffer = {
-        price: counterPrice,
-        message,
-        by: isFarmer ? 'farmer' : 'buyer',
-        createdAt: new Date(),
-      };
-      offer.negotiationHistory.push({ ...historyEntry, action: 'counter', price: counterPrice });
-      await offer.save();
-
-      const recipientId = isFarmer ? offer.buyer._id : offer.farmer._id;
-      const initiatorName = isFarmer ? offer.farmer.name : offer.buyer.name;
-      await NotificationService.notifyCounterOffer(offer, offer.crop, initiatorName, recipientId);
-
-      if (global.io) {
-        global.io.to(`user:${recipientId}`).emit('counter_offer', {
-          offerId: offer._id,
-          counterPrice,
-          by: isFarmer ? 'farmer' : 'buyer',
-        });
-      }
-
-      return sendSuccess(res, { message: 'Counter offer sent', data: { offer } });
-    }
-
-    case 'cancel': {
-      if (!isBuyer) return sendForbidden(res, 'Only buyer can cancel their offer');
-      offer.status = 'cancelled';
-      offer.negotiationHistory.push(historyEntry);
-      await offer.save();
-      return sendSuccess(res, { message: 'Offer cancelled', data: { offer } });
-    }
-
-    default:
-      return sendError(res, { message: 'Invalid action', statusCode: 400 });
+      },
+    });
+  } catch (err) {
+    logger.error('acceptOffer error:', err);
+    const status = err.message.includes('Insufficient') ? 409 : 500;
+    return res.status(status).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Failed to accept offer',
+    });
   }
 };
 
-// ─── GET OFFERS ─────────────────────────────────────────────────────────────────────────────
-const getMyOffers = async (req, res) => {
-  const { page, limit, skip } = parsePagination(req.query);
-  const { status, type = 'received' } = req.query;
-  const user = req.user;
+// ─── POST /api/v1/offers/:id/reject ──────────────────────────────────────────
+const rejectOffer = async (req, res) => {
+  try {
+    const { id: offerId } = req.params;
+    const { reason }      = req.body;
+    const farmerId        = req.user.id;
 
-  const query = {};
-  if (user.role === 'farmer') {
-    query[type === 'received' ? 'farmer' : 'buyer'] = user._id;
-  } else {
-    query[type === 'sent' ? 'buyer' : 'farmer'] = user._id;
+    const offer = await Offer.findById(offerId);
+    if (!offer) return res.status(404).json({ success: false, error: 'Offer not found' });
+
+    if (offer.farmer.toString() !== farmerId) {
+      return res.status(403).json({ success: false, error: 'Only the farmer can reject this offer' });
+    }
+    if (offer.status !== 'pending') {
+      return res.status(400).json({ success: false, error: 'Only pending offers can be rejected' });
+    }
+
+    offer.status          = 'rejected';
+    offer.rejectionReason = reason ? sanitizer.sanitizeString(reason) : undefined;
+    offer.rejectedBy      = 'farmer';
+    await offer.save();
+
+    logger.info(`✅ Offer rejected: ${offerId}`);
+    return res.status(200).json({ success: true, message: 'Offer rejected', data: offer });
+  } catch (err) {
+    logger.error('rejectOffer error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to reject offer' });
   }
-  if (status) query.status = status;
-
-  const [offers, total] = await Promise.all([
-    Offer.find(query)
-      .populate('crop', 'name images pricePerKg quality')
-      .populate('farmer', 'name phone rating')
-      .populate('buyer', 'name phone companyName')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
-    Offer.countDocuments(query),
-  ]);
-
-  return sendPaginated(res, { data: { offers }, page, limit, total });
 };
 
-const getOfferById = async (req, res) => {
-  const offer = await Offer.findById(req.params.id)
-    .populate('crop', 'name images pricePerKg quality location')
-    .populate('farmer', 'name phone rating avatar')
-    .populate('buyer', 'name phone companyName avatar');
+// ─── POST /api/v1/offers/:id/counter ─────────────────────────────────────────
+const counterOffer = async (req, res) => {
+  try {
+    const { id: offerId }             = req.params;
+    const { pricePerKg, message }     = req.body;
+    const userId                      = req.user.id;
 
-  if (!offer) return sendNotFound(res, 'Offer not found');
+    const offer = await Offer.findById(offerId).populate('farmer buyer');
+    if (!offer) return res.status(404).json({ success: false, error: 'Offer not found' });
 
-  const user = req.user;
-  const hasAccess =
-    offer.farmer._id.toString() === user._id.toString() ||
-    offer.buyer._id.toString() === user._id.toString() ||
-    user.role === 'admin';
+    const isFarmer = offer.farmer._id.toString() === userId;
+    const isBuyer  = offer.buyer._id.toString()  === userId;
+    if (!isFarmer && !isBuyer) {
+      return res.status(403).json({ success: false, error: 'Not a party to this offer' });
+    }
+    if (offer.status !== 'pending') {
+      return res.status(400).json({ success: false, error: 'Can only counter a pending offer' });
+    }
 
-  if (!hasAccess) return sendForbidden(res, 'Not authorized');
+    offer.status      = 'countered';
+    offer.counterOffer = {
+      price:     parseFloat(pricePerKg),
+      message:   message ? sanitizer.sanitizeString(message) : undefined,
+      by:        isFarmer ? 'farmer' : 'buyer',
+      createdAt: new Date(),
+    };
+    offer.negotiationHistory.push({
+      by:        isFarmer ? 'farmer' : 'buyer',
+      action:    'counter',
+      price:     parseFloat(pricePerKg),
+      message:   message,
+      timestamp: new Date(),
+    });
+    await offer.save();
 
-  return sendSuccess(res, { data: { offer } });
+    logger.info(`✅ Counter offer sent on: ${offerId}`);
+    return res.status(200).json({ success: true, message: 'Counter offer sent', data: offer });
+  } catch (err) {
+    logger.error('counterOffer error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to send counter offer' });
+  }
 };
 
-module.exports = { createOffer, updateOffer, getMyOffers, getOfferById };
+// ─── POST /api/v1/offers/:id/cancel ──────────────────────────────────────────
+const cancelOffer = async (req, res) => {
+  try {
+    const { id: offerId } = req.params;
+    const buyerId = req.user.id;
+
+    const offer = await Offer.findById(offerId);
+    if (!offer) return res.status(404).json({ success: false, error: 'Offer not found' });
+
+    if (offer.buyer.toString() !== buyerId) {
+      return res.status(403).json({ success: false, error: 'Only the buyer can cancel this offer' });
+    }
+    if (!['pending', 'countered'].includes(offer.status)) {
+      return res.status(400).json({ success: false, error: `Cannot cancel a ${offer.status} offer` });
+    }
+
+    offer.status = 'cancelled';
+    await offer.save();
+
+    logger.info(`✅ Offer cancelled: ${offerId}`);
+    return res.status(200).json({ success: true, message: 'Offer cancelled', data: offer });
+  } catch (err) {
+    logger.error('cancelOffer error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to cancel offer' });
+  }
+};
+
+module.exports = { getOffers, getOfferDetail, makeOffer, acceptOffer, rejectOffer, counterOffer, cancelOffer };

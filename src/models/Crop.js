@@ -140,7 +140,7 @@ const cropSchema = new mongoose.Schema(
 );
 
 // Indexes
-cropSchema.index({ location: '2dsphere' });
+cropSchema.index({ "location.coordinates": "2dsphere" });
 cropSchema.index({ farmer: 1, status: 1 });
 cropSchema.index({ name: 'text', description: 'text', tags: 'text' });
 cropSchema.index({ pricePerKg: 1 });

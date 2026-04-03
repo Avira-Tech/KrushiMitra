@@ -1,241 +1,526 @@
 const Crop = require('../models/Crop');
 const User = require('../models/User');
-const { uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudinary');
-const NotificationService = require('../services/notificationService');
-const AIService = require('../services/aiService');
-const { parsePagination, buildSort } = require('../utils/helpers');
-const { sendSuccess, sendCreated, sendError, sendNotFound, sendPaginated } = require('../utils/apiResponse');
+const { validationResult } = require('express-validator');
 const logger = require('../utils/logger');
+const sanitizer = require('../utils/sanitizer');
 
-// ─── CREATE CROP ─────────────────────────────────────────────────────────────────────────
-const createCrop = async (req, res) => {
-  const farmer = req.user;
-  const cropData = { ...req.body, farmer: farmer._id };
 
-  // Parse location
-  if (cropData.location) {
-    const loc = typeof cropData.location === 'string' ? JSON.parse(cropData.location) : cropData.location;
-    cropData.location = {
-      type: 'Point',
-      coordinates: [parseFloat(loc.lng), parseFloat(loc.lat)],
-      address: loc.address,
-      city: loc.city,
-      state: loc.state,
-      pincode: loc.pincode,
-    };
-  } else if (farmer.location?.coordinates) {
-    cropData.location = farmer.location;
-  }
-
-  // Handle image uploads
-  if (req.files?.length > 0) {
-    const uploadPromises = req.files.map((file, index) =>
-      uploadToCloudinary(file.buffer, `krushimitra/crops/${farmer._id}`)
-        .then((result) => ({ ...result, isPrimary: index === 0 }))
-    );
-    cropData.images = await Promise.all(uploadPromises);
-  }
-
-  // Get AI price recommendation
-  const aiRec = await AIService.getPriceRecommendation(cropData.name, cropData.quality);
-  if (aiRec.success) {
-    cropData.aiRecommendedPrice = {
-      price: aiRec.recommendedPrice,
-      confidence: aiRec.confidence,
-      generatedAt: new Date(),
-    };
-  }
-
-  const crop = await Crop.create(cropData);
-  await crop.populate('farmer', 'name phone rating location');
-
-  // Notify nearby buyers
-  const radius = 50 * 1000; // 50km in meters
-  const nearbyBuyers = await User.find({
-    role: 'buyer',
-    isActive: true,
-    location: {
-      $near: {
-        $geometry: { type: 'Point', coordinates: crop.location.coordinates },
-        $maxDistance: radius,
-      },
-    },
-  }).select('_id').limit(50);
-
-  if (nearbyBuyers.length > 0) {
-    NotificationService.notifyNewCropToNearbyBuyers(
-      crop,
-      farmer.name,
-      nearbyBuyers.map((b) => b._id)
-    ).catch(() => {});
-  }
-
-  logger.info(`Crop created: ${crop._id} by farmer ${farmer._id}`);
-
-  return sendCreated(res, {
-    message: 'Crop listed successfully! Nearby buyers have been notified.',
-    data: { crop },
-  });
-};
-
-// ─── GET ALL CROPS (Marketplace) ───────────────────────────────────────────────────────
 const getCrops = async (req, res) => {
-  const { lat, lng, radius = 50, name, category, quality, minPrice, maxPrice, deliveryAvailable, sortBy, order, search } = req.query;
-  const { page, limit, skip } = parsePagination(req.query);
+  try {
+    const { category, search, minPrice, maxPrice, skip = 0, limit = 20, lat, lon, radius = 50 } = req.query;
 
-  const query = { status: 'active', isAvailable: true };
-
-  // Geo-based filtering
-  if (lat && lng) {
-    query.location = {
-      $near: {
-        $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-        $maxDistance: parseFloat(radius) * 1000,
-      },
-    };
-  }
-
-  // Filters
-  if (name) query.name = new RegExp(name, 'i');
-  if (category) query.category = category;
-  if (quality) query.quality = quality;
-  if (deliveryAvailable !== undefined) query.deliveryAvailable = deliveryAvailable === 'true';
-  if (minPrice || maxPrice) {
-    query.pricePerKg = {};
-    if (minPrice) query.pricePerKg.$gte = parseFloat(minPrice);
-    if (maxPrice) query.pricePerKg.$lte = parseFloat(maxPrice);
-  }
-
-  // Full-text search
-  if (search) {
-    query.$text = { $search: search };
-  }
-
-  const sort = query.location ? {} : buildSort(sortBy, order); // Can't sort with $near
-
-  const [crops, total] = await Promise.all([
-    Crop.find(query)
-      .populate('farmer', 'name phone rating location isVerified avatar')
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Crop.countDocuments(query),
-  ]);
-
-  // Add distance if geo query
-  const cropsWithDistance = crops.map((crop) => {
-    if (lat && lng) {
-      const { calculateDistance } = require('../utils/helpers');
-      const dist = calculateDistance(
-        parseFloat(lat), parseFloat(lng),
-        crop.location.coordinates[1], crop.location.coordinates[0]
-      );
-      return { ...crop, distance: dist };
+    const filter = {};
+    if (category) filter.category = category;
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } },
+      ];
     }
-    return crop;
-  });
+    if (minPrice || maxPrice) {
+      filter.pricePerKg = {};
+      if (minPrice) filter.pricePerKg.$gte = parseFloat(minPrice);
+      if (maxPrice) filter.pricePerKg.$lte = parseFloat(maxPrice);
+    }
 
-  return sendPaginated(res, { data: { crops: cropsWithDistance }, page, limit, total });
-};
+    let crops;
+    let total;
 
-// ─── GET CROP BY ID ──────────────────────────────────────────────────────────────────────
-const getCropById = async (req, res) => {
-  const crop = await Crop.findById(req.params.id)
-    .populate('farmer', 'name phone rating location isVerified avatar companyName farmerId');
+    // Separate execution paths to avoid $near + .sort() conflict
+    if (lat && lon) {
+      // 1. Geospatial Query Path
+      const geoFilter = {
+        ...filter,
+        "location.coordinates": {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [parseFloat(lon), parseFloat(lat)], // Longitude first
+            },
+            $maxDistance: parseFloat(radius) * 1000, // km to meters
+          },
+        },
+      };
 
-  if (!crop) return sendNotFound(res, 'Crop not found');
+      // MongoDB automatically sorts by distance here. NO .sort() allowed.
+      crops = await Crop.find(geoFilter)
+        .populate('farmer', 'name phone email location avatar rating')
+        .skip(parseInt(skip))
+        .limit(parseInt(limit))
+        .lean();
 
-  // Increment view count
-  await Crop.findByIdAndUpdate(req.params.id, { $inc: { viewCount: 1 } });
+      // Use basic filter for count to avoid $near count errors
+      total = await Crop.countDocuments(filter);
+    } else {
+      // 2. Standard Query Path
+      crops = await Crop.find(filter)
+        .sort({ createdAt: -1 }) // Allowed here because $near is not used
+        .populate('farmer', 'name phone email location avatar rating')
+        .skip(parseInt(skip))
+        .limit(parseInt(limit))
+        .lean();
 
-  // Get AI recommendation if not present
-  let aiRecommendation = crop.aiRecommendedPrice;
-  if (!aiRecommendation?.price) {
-    const rec = await AIService.getPriceRecommendation(crop.name, crop.quality);
-    if (rec.success) aiRecommendation = rec;
+      total = await Crop.countDocuments(filter);
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: crops,
+      pagination: {
+        total,
+        skip: parseInt(skip),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / (parseInt(limit) || 1)),
+      },
+    });
+  } catch (error) {
+    logger.error('❌ Error fetching crops:', error);
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
+};
+/**
+ * Get all crops with filters
+ * GET /api/v1/crops
+ */
+// const getCrops = async (req, res) => {
+//   try {
+//     const { category, search, minPrice, maxPrice, skip = 0, limit = 20, lat, lon, radius = 50 } = req.query;
 
-  return sendSuccess(res, { data: { crop, aiRecommendation } });
+//     // Build filter
+//     const filter = {};
+
+//     if (category) {
+//       filter.category = category;
+//     }
+
+//     if (search) {
+//       filter.$or = [
+//         { name: { $regex: search, $options: 'i' } },
+//         { category: { $regex: search, $options: 'i' } },
+//       ];
+//     }
+
+//     if (minPrice || maxPrice) {
+//       filter.pricePerUnit = {};
+//       if (minPrice) filter.pricePerUnit.$gte = parseFloat(minPrice);
+//       if (maxPrice) filter.pricePerUnit.$lte = parseFloat(maxPrice);
+//     }
+
+//     // Geospatial query (if coordinates provided)
+//     if (lat && lon) {
+//       filter['location.coordinates'] = {
+//         $near: {
+//           $geometry: {
+//             type: 'Point',
+//             coordinates: [parseFloat(lon), parseFloat(lat)],
+//           },
+//           $maxDistance: parseFloat(radius) * 1000, // Convert km to meters
+//         },
+//       };
+//     }
+
+//     const crops = await Crop.find(filter)
+//       .populate('farmer', 'name phone email location')
+//       .sort({ createdAt: -1 })
+//       .skip(parseInt(skip))
+//       .limit(parseInt(limit));
+
+//     const total = await Crop.countDocuments(filter);
+
+//     return res.status(200).json({
+//       success: true,
+//       data: crops,
+//       pagination: {
+//         total,
+//         skip: parseInt(skip),
+//         limit: parseInt(limit),
+//         pages: Math.ceil(total / parseInt(limit)),
+//       },
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error fetching crops:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to fetch crops',
+//     });
+//   }
+// };
+
+/**
+ * Get crop detail
+ * GET /api/v1/crops/:id
+ */
+const getCropDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const crop = await Crop.findById(id)
+      .populate('farmer', 'name phone email location avatar rating')
+      .populate('reviews', 'rating comment reviewer')
+      .lean();
+
+    if (!crop) {
+      return res.status(404).json({
+        success: false,
+        error: 'Crop not found',
+      });
+    }
+
+    // Get farmer's other crops
+    const otherCrops = await Crop.find(
+      { farmer: crop.farmer._id, _id: { $ne: id } },
+      'name category pricePerUnit images'
+    ).limit(5);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...crop,
+        farmerOtherCrops: otherCrops,
+      },
+    });
+  } catch (error) {
+    logger.error('❌ Error fetching crop detail:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch crop details',
+    });
+  }
 };
 
-// ─── UPDATE CROP ─────────────────────────────────────────────────────────────────────────
+/**
+ * Add new crop
+ * POST /api/v1/crops
+ */
+// const addCrop = async (req, res) => {
+//   try {
+//     // Validate input
+//     const errors = validationResult(req);
+//     if (!errors.isEmpty()) {
+//       return res.status(400).json({
+//         success: false,
+//         errors: errors.array().map(e => ({
+//           field: e.param,
+//           message: e.msg,
+//         })),
+//       });
+//     }
+
+//     const userId = req.user.id; // From auth middleware
+//     const {
+//       name,
+//       category,
+//       quantity,
+//       unit,
+//       pricePerKg,
+//       quality,
+//       description,
+//       harvestDate,
+//       images,
+//       location,
+//       soilType,
+//       pesticides,
+//     } = req.body;
+
+//     // Verify user exists and is a farmer
+//     const user = await User.findById(userId);
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         error: 'User not found',
+//       });
+//     }
+
+//     if (user.role !== 'farmer') {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Only farmers can add crops',
+//       });
+//     }
+
+//     // Sanitize inputs
+//     const sanitized = {
+//       name: sanitizer.sanitizeString(name),
+//       category: sanitizer.sanitizeString(category),
+//       pricePerKg: parseFloat(pricePerKg),
+//       quality: quality || 'A',
+//       description: sanitizer.sanitizeString(description),
+//       soilType: sanitizer.sanitizeString(soilType),
+//       quantity: parseFloat(quantity),
+//       unit,
+//       pricePerUnit: parseFloat(pricePerUnit),
+//       harvestDate: new Date(harvestDate),
+//       images: images.map(img => sanitizer.sanitizeUrl(img)),
+//       location: {
+//         type: 'Point',
+//         coordinates: [parseFloat(location.longitude), parseFloat(location.latitude)],
+//         address: sanitizer.sanitizeString(location.address),
+//       },
+//       pesticides: Boolean(pesticides),
+//     };
+
+//     // Create crop
+//     const crop = new Crop({
+//       ...sanitized,
+//       farmer: userId,
+//       availableQuantity: sanitized.quantity,
+//     });
+
+//     await crop.save();
+
+//     // Populate farmer info
+//     await crop.populate('farmer', 'name phone email');
+
+//     logger.info(`✅ Crop added by farmer ${userId}:`, crop._id);
+
+//     return res.status(201).json({
+//       success: true,
+//       message: 'Crop added successfully',
+//       data: crop,
+//     });
+//   } catch (error) {
+//     logger.error('❌ Error adding crop:', error);
+//     return res.status(500).json({
+//       success: false,
+//       error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to add crop',
+//     });
+//   }
+// };
+
+const addCrop = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        // This will now correctly report the 'pricePerKg' or 'category' errors
+        errors: errors.array().map(e => ({ field: e.param, message: e.msg })),
+      });
+    }
+
+    const {
+      name, category, quantity, unit, pricePerKg, quality,
+      description, harvestDate, images, location, soilType, pesticides
+    } = req.body;
+
+    const crop = new Crop({
+      farmer: req.user.id,
+      name: sanitizer.sanitizeString(name),
+      category: category, 
+      quantity: parseFloat(quantity),
+      quantityUnit: unit || 'kg',
+      pricePerKg: parseFloat(pricePerKg),
+      quality: quality || 'A',
+      description: sanitizer.sanitizeString(description),
+      harvestDate: new Date(harvestDate),
+      images: images, 
+      location: {
+        type: 'Point',
+        coordinates: [parseFloat(location.longitude), parseFloat(location.latitude)],
+        address: sanitizer.sanitizeString(location.address),
+      },
+      soilType,
+      pesticides: Boolean(pesticides),
+    });
+
+    await crop.save();
+    res.status(201).json({ success: true, data: crop });
+  } catch (error) {
+    logger.error('Error adding crop:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * Update crop
+ * PUT /api/v1/crops/:id
+ */
 const updateCrop = async (req, res) => {
-  const crop = await Crop.findOne({ _id: req.params.id, farmer: req.user._id });
-  if (!crop) return sendNotFound(res, 'Crop not found or unauthorized');
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
 
-  // Handle new image uploads
-  if (req.files?.length > 0) {
-    const newImages = await Promise.all(
-      req.files.map((file) => uploadToCloudinary(file.buffer, `krushimitra/crops/${req.user._id}`))
-    );
-    req.body.images = [...(crop.images || []), ...newImages];
+    const { id } = req.params;
+    const userId = req.user.id; // From auth middleware
+    const updates = req.body;
+
+    // Find crop
+    const crop = await Crop.findById(id);
+    if (!crop) {
+      return res.status(404).json({
+        success: false,
+        error: 'Crop not found',
+      });
+    }
+
+    // ✅ AUTH CHECK: Verify farmer owns this crop
+    if (crop.farmer.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only update your own crops',
+      });
+    }
+
+    // ✅ Prevent updating farmer & createdAt
+    delete updates.farmer;
+    delete updates.createdAt;
+    delete updates._id;
+
+    // Sanitize updates
+    const sanitizedUpdates = {};
+    const allowedFields = [
+      'name',
+      'category',
+      'quantity',
+      'unit',
+      'pricePerUnit',
+      'description',
+      'harvestDate',
+      'images',
+      'soilType',
+      'pesticides',
+    ];
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        if (field === 'quantity') {
+          sanitizedUpdates[field] = parseFloat(updates[field]);
+          sanitizedUpdates.availableQuantity = parseFloat(updates[field]);
+        } else if (field === 'pricePerUnit') {
+          sanitizedUpdates[field] = parseFloat(updates[field]);
+        } else if (['name', 'category', 'description', 'soilType'].includes(field)) {
+          sanitizedUpdates[field] = sanitizer.sanitizeString(updates[field]);
+        } else if (field === 'images') {
+          sanitizedUpdates[field] = updates[field].map(img => sanitizer.sanitizeUrl(img));
+        } else {
+          sanitizedUpdates[field] = updates[field];
+        }
+      }
+    }
+
+    // Update crop
+    const updatedCrop = await Crop.findByIdAndUpdate(
+      id,
+      sanitizedUpdates,
+      { new: true, runValidators: true }
+    ).populate('farmer', 'name phone email');
+
+    logger.info(`✅ Crop updated by farmer ${userId}:`, id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Crop updated successfully',
+      data: updatedCrop,
+    });
+  } catch (error) {
+    logger.error('❌ Error updating crop:', error);
+    return res.status(500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Failed to update crop',
+    });
   }
-
-  const updated = await Crop.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
-    .populate('farmer', 'name phone rating');
-
-  return sendSuccess(res, { message: 'Crop updated', data: { crop: updated } });
 };
 
-// ─── DELETE CROP ─────────────────────────────────────────────────────────────────────────
+/**
+ * Delete crop
+ * DELETE /api/v1/crops/:id
+ */
 const deleteCrop = async (req, res) => {
-  const crop = await Crop.findOne({ _id: req.params.id, farmer: req.user._id });
-  if (!crop) return sendNotFound(res, 'Crop not found or unauthorized');
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
 
-  // Delete images from Cloudinary
-  if (crop.images?.length > 0) {
-    await Promise.allSettled(crop.images.map((img) => deleteFromCloudinary(img.publicId)));
+    const crop = await Crop.findById(id);
+    if (!crop) {
+      return res.status(404).json({
+        success: false,
+        error: 'Crop not found',
+      });
+    }
+
+    // ✅ AUTH CHECK: Verify farmer owns this crop
+    if (crop.farmer.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only delete your own crops',
+      });
+    }
+
+    // Check if crop has active offers
+    const Offer = require('../models/Offer');
+    const activeOffers = await Offer.countDocuments({
+      crop: id,
+      status: { $in: ['pending', 'accepted'] },
+    });
+
+    if (activeOffers > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete crop with active offers',
+      });
+    }
+
+    await Crop.findByIdAndDelete(id);
+
+    logger.info(`✅ Crop deleted by farmer ${userId}:`, id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Crop deleted successfully',
+    });
+  } catch (error) {
+    logger.error('❌ Error deleting crop:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete crop',
+    });
   }
-
-  await crop.deleteOne();
-  return sendSuccess(res, { message: 'Crop listing deleted' });
 };
 
-// ─── GET MY CROPS ────────────────────────────────────────────────────────────────────────
-const getMyCrops = async (req, res) => {
-  const { page, limit, skip } = parsePagination(req.query);
-  const { status } = req.query;
+/**
+ * Get farmer's crops
+ * GET /api/v1/crops/farmer/my-listings
+ */
+const getFarmerCrops = async (req, res) => {
+  try {
+    const farmerId = req.user.id;
+    const { skip = 0, limit = 20 } = req.query;
 
-  const query = { farmer: req.user._id };
-  if (status) query.status = status;
+    const crops = await Crop.find({ farmer: farmerId })
+      .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit));
 
-  const [crops, total] = await Promise.all([
-    Crop.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Crop.countDocuments(query),
-  ]);
+    const total = await Crop.countDocuments({ farmer: farmerId });
 
-  const stats = await Crop.aggregate([
-    { $match: { farmer: req.user._id } },
-    { $group: {
-      _id: '$status',
-      count: { $sum: 1 },
-      totalQuantity: { $sum: '$quantity' },
-    }},
-  ]);
-
-  return sendPaginated(res, { data: { crops, stats }, page, limit, total });
+    return res.status(200).json({
+      success: true,
+      data: crops,
+      pagination: {
+        total,
+        skip: parseInt(skip),
+        limit: parseInt(limit),
+      },
+    });
+  } catch (error) {
+    logger.error('❌ Error fetching farmer crops:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch your crops',
+    });
+  }
 };
 
-// ─── GET AI PRICE RECOMMENDATION ────────────────────────────────────────────────────────
-const getAIPriceRecommendation = async (req, res) => {
-  const { cropName, quality = 'A' } = req.query;
-  if (!cropName) return sendError(res, { message: 'cropName is required', statusCode: 400 });
-
-  const recommendation = await AIService.getPriceRecommendation(cropName, quality);
-  return sendSuccess(res, { data: { recommendation } });
+module.exports = {
+  getCrops,
+  getCropDetail,
+  addCrop,
+  updateCrop,
+  deleteCrop,
+  getFarmerCrops,
 };
-
-// ─── DETECT CROP QUALITY ─────────────────────────────────────────────────────────────────────
-const detectCropQuality = async (req, res) => {
-  const { cropName } = req.body;
-  if (!req.file) return sendError(res, { message: 'Image is required', statusCode: 400 });
-
-  // Upload image to Cloudinary
-  const uploaded = await uploadToCloudinary(req.file.buffer, 'krushimitra/quality-checks');
-
-  const result = await AIService.detectCropQuality(uploaded.url, cropName);
-  return sendSuccess(res, { data: { ...result, imageUrl: uploaded.url } });
-};
-
-module.exports = { createCrop, getCrops, getCropById, updateCrop, deleteCrop, getMyCrops, getAIPriceRecommendation, detectCropQuality };

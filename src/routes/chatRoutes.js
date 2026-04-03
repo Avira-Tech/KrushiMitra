@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/auth');
-const { getOrCreateChat, getMyChats, getMessages, sendMessage } = require('../controllers/chatController');
+const {
+  getConversations,
+  getMessages,
+  deleteMessage,
+  getChats,
+} = require('../controllers/chatController');
 
+// ─── Protected routes ────────────────────────────────────────────────────
 router.use(protect);
 
-router.get('/', getMyChats);
-router.post('/', getOrCreateChat);
-router.get('/:chatId/messages', getMessages);
-router.post('/:chatId/messages', sendMessage);
+router.get('/', getChats || getConversations);
+router.get('/conversations', getConversations);
+router.get('/conversations/:id/messages', getMessages);
+router.delete('/messages/:id', deleteMessage);
 
 module.exports = router;

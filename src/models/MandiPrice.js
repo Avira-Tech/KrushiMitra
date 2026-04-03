@@ -2,37 +2,68 @@ const mongoose = require('mongoose');
 
 const mandiPriceSchema = new mongoose.Schema(
   {
-    commodity: {
+    crop: {
       type: String,
       required: true,
-      trim: true,
+      index: true,
     },
-    variety: String,
-    market: {
+    mandi: {
       type: String,
       required: true,
-      trim: true,
     },
-    state: String,
-    district: String,
-    minPrice: { type: Number, required: true },
-    maxPrice: { type: Number, required: true },
-    modalPrice: { type: Number, required: true },
-    unit: { type: String, default: 'Quintal' },
-    priceDate: { type: Date, required: true },
-    source: { type: String, default: 'AGMARKNET' },
-    // Change tracking
-    previousModalPrice: Number,
-    priceChange: Number,
-    priceChangePercent: Number,
-    trend: { type: String, enum: ['up', 'down', 'stable'] },
+    state: {
+      type: String,
+      required: true,
+      enum: ['Gujarat', 'Maharashtra', 'Punjab', 'Haryana', 'Karnataka'],
+      index: true,
+    },
+    minPrice: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    maxPrice: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    modalPrice: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    priceDate: {
+      type: Date,
+      required: true,
+      default: () => {
+        const date = new Date();
+        date.setHours(0, 0, 0, 0);
+        return date;
+      },
+      index: true,
+    },
+    unit: {
+      type: String,
+      default: 'per quintal',
+    },
+    supply: {
+      type: String,
+      enum: ['Good', 'Fair', 'Poor'],
+    },
+    tradingQuantity: Number,
+    currency: {
+      type: String,
+      default: 'INR',
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-mandiPriceSchema.index({ commodity: 1, priceDate: -1 });
-mandiPriceSchema.index({ market: 1, priceDate: -1 });
-mandiPriceSchema.index({ state: 1, commodity: 1 });
-mandiPriceSchema.index({ priceDate: -1 });
+// Composite indexes
+mandiPriceSchema.index({ crop: 1, priceDate: -1 });
+mandiPriceSchema.index({ mandi: 1, priceDate: -1 });
+mandiPriceSchema.index({ state: 1, priceDate: -1 });
 
 module.exports = mongoose.model('MandiPrice', mandiPriceSchema);

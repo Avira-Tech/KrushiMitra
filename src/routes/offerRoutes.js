@@ -1,15 +1,27 @@
 const express = require('express');
 const router = express.Router();
-const { protect, restrictTo, requireVerified } = require('../middlewares/auth');
+const { protect } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
-const { createOfferSchema, updateOfferSchema } = require('../validators/offerValidators');
-const { createOffer, updateOffer, getMyOffers, getOfferById } = require('../controllers/offerController');
+const { makeOfferSchema } = require('../validators/offerValidators');
+const {
+  getOffers,
+  getOfferDetail,
+  makeOffer,
+  acceptOffer,
+  rejectOffer,
+  cancelOffer,
+} = require('../controllers/offerController');
 
-router.use(protect);
+// ─── Public routes ───────────────────────────────────────────────────────
+router.get('/:id', protect, getOfferDetail);
 
-router.get('/', getMyOffers);
-router.get('/:id', getOfferById);
-router.post('/', requireVerified, restrictTo('buyer'), validate(createOfferSchema), createOffer);
-router.patch('/:id', validate(updateOfferSchema), updateOffer);
+// ─── Protected routes ────────────────────────────────────────────────────
+router.use(protect); // All routes below require auth
+
+router.get('/', getOffers);
+router.post('/', validate(makeOfferSchema), makeOffer);
+router.post('/:id/accept', acceptOffer);
+router.post('/:id/reject', rejectOffer);
+router.post('/:id/cancel', cancelOffer);
 
 module.exports = router;

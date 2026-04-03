@@ -1,25 +1,19 @@
 const express = require('express');
 const router = express.Router();
-const { protect, restrictTo, requireVerified } = require('../middlewares/auth');
-const { uploadMultiple, uploadSingle } = require('../middlewares/upload');
+const { protect } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
-const { createCropSchema, updateCropSchema, getCropsSchema } = require('../validators/cropValidators');
-const {
-  createCrop, getCrops, getCropById, updateCrop,
-  deleteCrop, getMyCrops, getAIPriceRecommendation, detectCropQuality,
-} = require('../controllers/cropController');
+const { addCropSchema } = require('../validators/cropValidators');
+const { addCrop, updateCrop, deleteCrop, getCrops, getCropDetail, getFarmerCrops } = require('../controllers/cropController');
 
 // Public routes
-router.get('/', validate(getCropsSchema, 'query'), getCrops);
-router.get('/ai-price', getAIPriceRecommendation);
-router.get('/:id', getCropById);
+router.get('/', getCrops);
+router.get('/:id', getCropDetail);
 
-// Protected routes
-router.use(protect);
-router.get('/my/listings', getMyCrops);
-router.post('/', requireVerified, restrictTo('farmer'), uploadMultiple('images', 5), validate(createCropSchema), createCrop);
-router.put('/:id', restrictTo('farmer'), uploadMultiple('images', 3), validate(updateCropSchema), updateCrop);
-router.delete('/:id', restrictTo('farmer'), deleteCrop);
-router.post('/detect-quality', restrictTo('farmer'), uploadSingle('image'), detectCropQuality);
+// Protected routes (farmer only)
+router.use(protect); // All routes below require auth
+router.get('/farmer/my-listings', getFarmerCrops);
+router.post('/', validate(addCropSchema), addCrop);
+router.put('/:id', validate(addCropSchema), updateCrop);
+router.delete('/:id', deleteCrop);
 
 module.exports = router;
