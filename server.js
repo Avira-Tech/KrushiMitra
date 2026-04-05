@@ -29,7 +29,7 @@ const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production'
       ? process.env.CLIENT_URL?.split(',')?.filter(Boolean) || []
-      : ['http://10.140.239.234:8081', 'http://localhost:19006', 'exp://10.140.239.234:8081'],
+      : ['http://10.185.238.217:8081', 'http://localhost:19006', 'exp://10.140.239.234:8081'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     credentials: true,
   },

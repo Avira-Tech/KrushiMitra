@@ -255,21 +255,40 @@ app.use(helmet({
   },
 }));
 
+// app.use(cors({
+//   origin: (origin, callback) => {
+//     const raw = process.env.ALLOWED_ORIGINS ?? '';
+//     const allowedOrigins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+//     if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+//       callback(null, true);
+//     } else {
+//       callback(new Error(`CORS: ${origin} not allowed`));
+//     }
+//   },
+//   credentials:     true,
+//   methods:         ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+//   allowedHeaders:  ['Content-Type', 'Authorization', 'X-Requested-With'],
+// }));
+
 app.use(cors({
   origin: (origin, callback) => {
-    const raw = process.env.ALLOWED_ORIGINS ?? '';
-    const allowedOrigins = raw.split(',').map((o) => o.trim()).filter(Boolean);
-    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    // Mobile apps often don't send an 'origin' header. 
+    // In development, we allow everything to ensure the socket connects.
+    if (!origin || process.env.NODE_ENV === 'development') {
       callback(null, true);
     } else {
-      callback(new Error(`CORS: ${origin} not allowed`));
+      const allowed = [process.env.CLIENT_URL].filter(Boolean);
+      if (allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     }
   },
-  credentials:     true,
-  methods:         ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders:  ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
-
 app.use(mongoSanitize());
 app.use(compression());
 

@@ -3,7 +3,7 @@ const MandiPrice = require('../models/MandiPrice');
 const logger = require('../utils/logger');
 
 const AGMARKNET_BASE = process.env.AGMARKNET_BASE_URL || 'https://api.data.gov.in/resource';
-const AGMARKNET_RESOURCE_ID = '9ef84268-d588-465a-a308-a864a43d0070';
+const AGMARKNET_RESOURCE_ID = '35985678-0d79-46b4-9ed6-6f13308a1d24'; // Updated ID
 const API_KEY = process.env.AGMARKNET_API_KEY;
 
 class MandiService {
@@ -11,43 +11,46 @@ class MandiService {
    * Fetch and cache mandi prices from AGMARKNET
    */
   static async fetchAndCachePrices(state = 'Gujarat', limit = 100) {
-    try {
-      const response = await axios.get(`${AGMARKNET_BASE}/${AGMARKNET_RESOURCE_ID}`, {
-        params: {
-          'api-key': API_KEY,
-          format: 'json',
-          limit,
-          filters: JSON.stringify({ state }),
-        },
-        timeout: 15000,
-      });
+  try {
+    const response = await axios.get(`${AGMARKNET_BASE}/${AGMARKNET_RESOURCE_ID}`, {
+      params: {
+        'api-key': API_KEY,
+        format: 'json',
+        limit,
+        // The API uses filters like "filters[state]=Gujarat"
+        'filters[state]': state, 
+      },
+      timeout: 15000,
+    });
 
-      const records = response.data?.records || [];
-      const bulkOps = records.map((record) => ({
-        updateOne: {
-          filter: {
-            commodity: record.commodity,
-            market: record.market,
-            priceDate: new Date(record.arrival_date),
-          },
-          update: {
-            $set: {
-              commodity: record.commodity,
-              variety: record.variety,
-              market: record.market,
-              state: record.state,
-              district: record.district,
-              minPrice: parseFloat(record.min_price) || 0,
-              maxPrice: parseFloat(record.max_price) || 0,
-              modalPrice: parseFloat(record.modal_price) || 0,
-              unit: 'Quintal',
-              priceDate: new Date(record.arrival_date),
-              source: 'AGMARKNET',
-            },
-          },
-          upsert: true,
+    const records = response.data?.records || [];
+    const bulkOps = records.map((record) => ({
+      updateOne: {
+        filter: {
+          commodity: record.commodity,
+          market: record.market,
+          // Use arrival_date from API
+          priceDate: new Date(record.arrival_date), 
         },
-      }));
+        update: {
+          $set: {
+            commodity: record.commodity,
+            variety: record.variety,
+            market: record.market,
+            state: record.state,
+            district: record.district,
+            // Ensure numbers are parsed correctly from strings
+            minPrice: parseFloat(record.min_price) || 0,
+            maxPrice: parseFloat(record.max_price) || 0,
+            modalPrice: parseFloat(record.modal_price) || 0,
+            unit: 'Quintal',
+            priceDate: new Date(record.arrival_date),
+            source: 'AGMARKNET',
+          },
+        },
+        upsert: true,
+      },
+    }));
 
       if (bulkOps.length > 0) {
         await MandiPrice.bulkWrite(bulkOps);

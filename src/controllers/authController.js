@@ -1045,7 +1045,6 @@ const sendOtp = async (req, res) => {
 
     // Send SMS
     await sendOTP(`+91${cleanPhone}`, otp);
-
     logger.info(`📱 OTP dispatched → ${cleanPhone}`);
 
     return res.status(200).json({
