@@ -23,6 +23,12 @@ const connectDB = async () => {
     };
 
     const conn = await mongoose.connect(mongoURI, options);
+    
+    // Explicitly sync indexes for high-concurrency performance (esp. 2dsphere)
+    conn.model('Crop').syncIndexes().catch(err => logger.error('Index sync failed:', err));
+
+    // Explicitly sync indexes for high-concurrency performance (esp. 2dsphere)
+    conn.model('Crop').syncIndexes().catch(err => logger.error('Index sync failed:', err));
 
     logger.info(`✅ MongoDB Connected: ${conn.connection.host}`);
     logger.info(`📦 Database: ${conn.connection.name}`);

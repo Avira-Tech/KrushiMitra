@@ -99,6 +99,7 @@ const sanitizeLogData = (data) => {
     'token',
     'refreshToken',
     'accessToken',
+    'otp',
     'creditCard',
     'cardNumber',
     'cvv',

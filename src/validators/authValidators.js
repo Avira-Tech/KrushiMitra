@@ -1,76 +1,62 @@
 const Joi = require('joi');
-const { body } = require('express-validator');
 
-const phoneSchema = Joi.string()
-  .pattern(/^[+]?[0-9]{10,15}$/)
-  .required()
-  .messages({ 'string.pattern.base': 'Enter a valid phone number (10-15 digits)' });
+const sendOtpSchema = Joi.object({
+  phone: Joi.string().pattern(/^[6-9]\d{9}$/).required().messages({
+    'string.pattern.base': 'Please provide a valid 10-digit Indian mobile number',
+  }),
+  role: Joi.string().valid('farmer', 'buyer', 'admin').optional(),
+});
 
-const sendOtpSchema = [
-  body('phone')
-    .trim()
-    .notEmpty().withMessage('Phone is required')
-    .matches(/^\d{10}$|^\+?91\d{10}$/)
-    .withMessage('Invalid phone number format'),
-];
+const verifyOtpSchema = Joi.object({
+  phone: Joi.string().pattern(/^[6-9]\d{9}$/).required(),
+  otp: Joi.string().length(6).pattern(/^\d+$/).required(),
+  fcmToken: Joi.string().optional(),
+});
 
-const verifyOtpSchema = [
-  body('phone')
-    .trim()
-    .notEmpty().withMessage('Phone is required')
-    .matches(/^\d{10}$|^\+?91\d{10}$/)
-    .withMessage('Invalid phone number format'),
-  body('otp')
-    .trim()
-    .notEmpty().withMessage('OTP is required')
-    .matches(/^\d{6}$/)
-    .withMessage('OTP must be 6 digits'),
-];
+const registerSchema = Joi.object({
+  name: Joi.string().min(2).max(100).required(),
+  phone: Joi.string().pattern(/^[6-9]\d{9}$/).required(),
+  email: Joi.string().email().optional().allow(null, ''),
+  role: Joi.string().valid('farmer', 'buyer', 'admin').required(),
+  otp: Joi.string().length(6).required(),
+  fcmToken: Joi.string().optional(),
+  location: Joi.object({
+    lat: Joi.number().required(),
+    lng: Joi.number().required(),
+    address: Joi.string().optional(),
+    city: Joi.string().optional(),
+    state: Joi.string().optional(),
+    pincode: Joi.string().optional(),
+  }).optional(),
+  farmerId: Joi.string().when('role', { is: 'farmer', then: Joi.required() }),
+  govtId: Joi.string().when('role', { is: 'farmer', then: Joi.optional() }),
+  companyName: Joi.string().when('role', { is: 'buyer', then: Joi.required() }),
+  gstNumber: Joi.string().when('role', { is: 'buyer', then: Joi.optional() }),
+}).unknown(true);
 
-const registerSchema = [
-  body('phone')
-    .trim()
-    .notEmpty().withMessage('Phone is required')
-    .matches(/^\d{10}$|^\+?91\d{10}$/)
-    .withMessage('Invalid phone number format'),
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Name is required')
-    .isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
-  body('role')
-    .optional()
-    .isIn(['farmer', 'buyer', 'admin'])
-    .withMessage('Invalid role'),
-];
+const googleAuthSchema = Joi.object({
+  idToken: Joi.string().required(),
+  role: Joi.string().valid('farmer', 'buyer', 'admin').optional(),
+});
 
-const googleAuthSchema = [
-  body('idToken')
-    .trim()
-    .notEmpty().withMessage('ID token is required'),
-];
+const refreshTokenSchema = Joi.object({
+  refreshToken: Joi.string().required(),
+});
 
-const refreshTokenSchema = [
-  body('refreshToken')
-    .trim()
-    .notEmpty().withMessage('Refresh token is required'),
-];
-
-const updateProfileSchema = [
-  body('name')
-    .optional()
-    .trim()
-    .isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
-  body('avatar')
-    .optional()
-    .trim()
-    .isURL().withMessage('Avatar must be a valid URL'),
-  body('state')
-    .optional()
-    .trim(),
-  body('district')
-    .optional()
-    .trim(),
-];
+const updateProfileSchema = Joi.object({
+  name: Joi.string().min(2).max(100).optional(),
+  email: Joi.string().email().optional(),
+  language: Joi.string().valid('en', 'hi', 'gu').optional(),
+  avatar: Joi.string().uri().optional(),
+  location: Joi.object({
+    lat: Joi.number(),
+    lng: Joi.number(),
+    address: Joi.string(),
+    city: Joi.string(),
+    state: Joi.string(),
+    pincode: Joi.string(),
+  }).optional(),
+}).unknown(true);
 
 module.exports = {
   sendOtpSchema,

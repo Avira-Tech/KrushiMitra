@@ -47,7 +47,8 @@ const validate = (schema) => {
     try {
       // ─── Handle Joi Schema ─────────────────────────────────────────
       if (schema.validate && typeof schema.validate === 'function') {
-        const { error, value } = schema.validate(req.body, {
+        const data = req.method === 'GET' ? req.query : req.body;
+        const { error, value } = schema.validate(data, {
           abortEarly: false,
           stripUnknown: true,
           convert: true,
@@ -67,7 +68,11 @@ const validate = (schema) => {
           });
         }
 
-        req.body = value;
+        if (req.method === 'GET') {
+          req.query = value;
+        } else {
+          req.body = value;
+        }
         return next();
       }
 

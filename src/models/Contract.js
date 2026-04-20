@@ -47,7 +47,7 @@ const contractSchema = new mongoose.Schema(
     // Status
     status: {
       type: String,
-      enum: ["active", "completed", "cancelled", "disputed"],
+      enum: ["pending", "active", "confirmed", "completed", "cancelled", "disputed"],
       default: "active",
     },
     // Payment (Stripe Escrow)
@@ -56,25 +56,28 @@ const contractSchema = new mongoose.Schema(
         type: String,
         enum: [
           "pending",
-          "awaiting_buyer", // Add this
-          "awaiting_payment", // Add this
-          "on_delivery", // Add this
-          "authorized",
-          "in_escrow",
-          "released",
+          "awaiting_buyer",
+          "awaiting_payment",
+          "requires_action",   // Stripe 3DS
+          "requires_capture",  // Stripe Authorized
+          "in_escrow",         // Stripe Succeeded (manual capture)
+          "released",          // Stripe Captured (payout)
           "refunded",
           "failed",
         ],
         default: "pending",
       },
-      stripePaymentIntentId: String,
-      stripeChargeId: String,
+      method: {
+        type: String,
+        enum: ['advance', 'on_delivery', 'stripe', 'upi', 'bank_transfer', 'cod', 'razorpay'],
+        default: 'stripe',
+      },
+      stripeIntentId: { type: String, index: true },
+      stripeClientSecret: String,
       paidAt: Date,
       releasedAt: Date,
       refundedAt: Date,
-      refundAmount: Number,
       receiptId: String,
-      receiptUrl: String,
     },
     // Delivery
     delivery: {
@@ -136,18 +139,17 @@ contractSchema.index({ "payment.status": 1 });
 contractSchema.index({ "delivery.status": 1 });
 contractSchema.index({ createdAt: -1 });
 
-// Pre-save: generate contract ID
+// Pre-save: generate contract ID and calculate fees with precision
 contractSchema.pre("save", function (next) {
   if (this.isNew && !this.contractId) {
     this.contractId = generateContractId();
   }
   if (this.isNew) {
-    this.terms.platformFee = parseFloat(
-      (this.terms.totalAmount * 0.02).toFixed(2),
-    );
-    this.terms.netAmount = parseFloat(
-      (this.terms.totalAmount - this.terms.platformFee).toFixed(2),
-    );
+    // 2% platform fee calculated in integer units then rounded to 2 decimals
+    const totalCents = Math.round(this.terms.totalAmount * 100);
+    const feeCents   = Math.round(totalCents * 0.02);
+    this.terms.platformFee = feeCents / 100;
+    this.terms.netAmount   = (totalCents - feeCents) / 100;
   }
   next();
 });

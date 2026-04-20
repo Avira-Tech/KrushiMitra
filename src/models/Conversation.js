@@ -41,7 +41,9 @@ const conversationSchema = new mongoose.Schema(
 );
 
 // Indexes
-conversationSchema.index({ participants: 1 });
+// Unique index on participants list ensures only ONE conversation per pair of users.
+// IMPORTANT: participants must be sorted before saving to make this effective.
+conversationSchema.index({ participants: 1 }, { unique: true });
 conversationSchema.index({ lastMessageAt: -1 });
 conversationSchema.index({ createdAt: -1 });
 

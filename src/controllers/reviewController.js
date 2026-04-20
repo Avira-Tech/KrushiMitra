@@ -27,11 +27,20 @@ const createReview = async (req, res) => {
     comment,
   });
 
-  // Update reviewee's rating
-  const reviewee = await User.findById(revieweeId);
-  if (reviewee) {
-    reviewee.updateRating(rating);
-    await reviewee.save();
+  // Update reviewee's rating atomically using $inc
+  await User.findByIdAndUpdate(revieweeId, {
+    $inc: { 
+      'rating.total': rating, 
+      'rating.count': 1 
+    }
+  });
+
+  // Re-calculate average in a separate step or on read
+  // For production performance, it's better to update it now or periodically
+  const updatedUser = await User.findById(revieweeId).select('rating');
+  if (updatedUser && updatedUser.rating.count > 0) {
+    const newAverage = parseFloat((updatedUser.rating.total / updatedUser.rating.count).toFixed(2));
+    await User.findByIdAndUpdate(revieweeId, { 'rating.average': newAverage });
   }
 
   return sendCreated(res, { message: 'Review submitted', data: { review } });

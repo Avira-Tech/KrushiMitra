@@ -1,1379 +1,415 @@
-// const User = require('../models/User');
-// const OTP = require('../models/OTP');
-// const jwt = require('jsonwebtoken');
-// const logger = require('../utils/logger');
-// const { sendOTP } = require('../config/sms');
-// const mongoose = require('mongoose');
-
-// // ─── Helper: Check Database Connection ────────────────────────────────
-// const checkDatabaseConnection = async () => {
-//   try {
-//     if (mongoose.connection.readyState !== 1) {
-//       throw new Error('Database connection not established');
-//     }
-//     return true;
-//   } catch (error) {
-//     logger.error('❌ Database connection check failed:', error.message);
-//     throw error;
-//   }
-// };
-
-// // ─── Helper: Generate JWT Token ────────────────────────────────────────
-// const generateToken = (userId, phone, role) => {
-//   return jwt.sign(
-//     {
-//       id: userId,
-//       phone,
-//       role,
-//     },
-//     process.env.JWT_SECRET || 'your-secret-key',
-//     { expiresIn: process.env.JWT_EXPIRE || '7d' }
-//   );
-// };
-
-// // ─── Send OTP ──────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/send-otp
-//  */
-// const sendOtp = async (req, res) => {
-//   try {
-//     // Check database connection
-//     await checkDatabaseConnection();
-
-//     const { phone } = req.body;
-
-//     if (!phone) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Phone is required',
-//       });
-//     }
-
-//     // Validate phone format (10 digits)
-//     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-//     if (cleanPhone.length !== 10 || !/^\d+$/.test(cleanPhone)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Invalid phone number format',
-//       });
-//     }
-
-//     // Generate 6-digit OTP
-//     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-//     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-//     logger.info(`📱 Sending OTP to ${cleanPhone}`);
-
-//     // Save OTP to database\n    await OTP.findOneAndUpdate(\n      { phone: cleanPhone },\n      {\n        phone: cleanPhone,\n        otp,\n        expiresAt,\n        attempts: 0,\n      },\n      { upsert: true, new: true }\n    );\n\n    // Send actual SMS\n    const e164Phone = `+91${cleanPhone}`;\n    await sendOTP(e164Phone, otp);\n\n    return res.status(200).json({\n      success: true,\n      message: 'OTP sent successfully',\n      data: {\n        phone: cleanPhone,\n        expiresIn: 600, // 10 minutes\n      },\n    });\n  } catch (error) {
-//     logger.error('❌ Send OTP error:', {
-//       message: error.message,
-//       stack: error.stack,
-//       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-//     });
-    
-//     return res.status(503).json({
-//       success: false,
-//       message: error.message.includes('connection') 
-//         ? 'Database connection error. Please try again later.' 
-//         : error.message || 'Failed to send OTP',
-//       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-//     });
-//   }
-// }
-
-// // ─── Verify OTP ────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/verify-otp
-//  */
-// const verifyOtp = async (req, res) => {
-//   try {
-//     // Check database connection
-//     await checkDatabaseConnection();
-
-//     const { phone, otp } = req.body;
-
-//     if (!phone || !otp) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Phone and OTP are required',
-//       });
-//     }
-
-//     // Clean phone number
-//     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-
-//     logger.info(`🔐 Verifying OTP for ${cleanPhone}`);
-
-//     // Find OTP record
-//     const otpRecord = await OTP.findOne({ phone: cleanPhone });
-
-//     if (!otpRecord) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'No OTP found. Please request a new OTP.',
-//       });
-//     }
-
-//     // Check if OTP expired
-//     if (new Date() > otpRecord.expiresAt) {
-//       logger.warn(`⏰ OTP expired for ${cleanPhone}`);
-//       await OTP.deleteOne({ phone: cleanPhone });
-//       return res.status(401).json({
-//         success: false,
-//         message: 'OTP expired. Please request a new OTP.',
-//       });
-//     }
-
-//     // Check if OTP matches
-//     if (otpRecord.otp !== otp.toString()) {
-//       otpRecord.attempts += 1;
-
-//       // Lock after 3 failed attempts
-//       if (otpRecord.attempts >= 3) {
-//         logger.warn(`🔒 Too many OTP attempts for ${cleanPhone}`);
-//         await OTP.deleteOne({ phone: cleanPhone });
-//         return res.status(401).json({
-//           success: false,
-//           message: 'Too many failed attempts. Please request a new OTP.',
-//         });
-//       }
-
-//       await otpRecord.save();
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Invalid OTP. Please try again.',
-//       });
-//     }
-
-//     // OTP verified successfully
-//     logger.info(`✅ OTP verified for ${cleanPhone}`);
-
-//     // Check if user exists
-//     let user = await User.findOne({ phone: cleanPhone });
-
-//     if (!user) {
-//       // Create new user
-//       user = new User({
-//         phone: cleanPhone,
-//         role: 'farmer',
-//         name: `User ${cleanPhone}`,
-//         state: '',
-//         district: '',
-//         isVerified: false,
-//       });
-//       await user.save();
-//       logger.info(`✅ New user created: ${user._id}`);
-//     } else {
-//       logger.info(`✅ Existing user: ${user._id}`);
-//     }
-
-//     // Generate JWT token
-//     const token = generateToken(user._id, user.phone, user.role);
-
-//     // Delete OTP after successful verification
-//     await OTP.deleteOne({ phone: cleanPhone });
-
-//     return res.status(200).json({
-//       success: true,
-//       message: 'OTP verified successfully',
-//       data: {
-//         token,
-//         user: {
-//           _id: user._id,
-//           name: user.name,
-//           phone: user.phone,
-//           role: user.role,
-//           avatar: user.avatar || null,
-//           isVerified: user.isVerified,
-//         },
-//       },
-//     });
-//   } catch (error) {
-//     logger.error('❌ Verify OTP error:', {
-//       message: error.message,
-//       stack: error.stack,
-//       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-//     });
-    
-//     return res.status(503).json({
-//       success: false,
-//       message: error.message.includes('connection') 
-//         ? 'Database connection error. Please try again later.' 
-//         : error.message || 'Failed to verify OTP',
-//       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-//     });
-//   }
-// };
-
-// // ─── Register (Optional - for additional info) ──────────────────────────
-// /**
-//  * POST /api/v1/auth/register
-//  */
-// const register = async (req, res) => {
-//   try {
-//     // Check database connection
-//     await checkDatabaseConnection();
-
-//     const { phone, name, role, state, district } = req.body;
-
-//     if (!phone || !name) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Phone and name are required',
-//       });
-//     }
-
-//     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-
-//     let user = await User.findOne({ phone: cleanPhone });
-
-//     if (user) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'User already exists',
-//       });
-//     }
-
-//     user = new User({
-//       phone: cleanPhone,
-//       name,
-//       role: role || 'farmer',
-//       state: state || '',
-//       district: district || '',
-//       isVerified: false,
-//     });
-
-//     await user.save();
-//     logger.info(`✅ User registered: ${user._id}`);
-
-//     const token = generateToken(user._id, user.phone, user.role);
-
-//     return res.status(201).json({
-//       success: true,
-//       message: 'User registered successfully',
-//       data: {
-//         token,
-//         user: {
-//           _id: user._id,
-//           name: user.name,
-//           phone: user.phone,
-//           role: user.role,
-//           state: user.state,
-//           district: user.district,
-//           isVerified: user.isVerified,
-//         },
-//       },
-//     });
-//   } catch (error) {
-//     logger.error('❌ Register error:', {
-//       message: error.message,
-//       stack: error.stack,
-//       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-//     });
-    
-//     return res.status(503).json({
-//       success: false,
-//       message: error.message.includes('connection') 
-//         ? 'Database connection error. Please check your connection and try again.' 
-//         : error.message || 'Registration failed',
-//       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-//     });
-//   }
-// };
-
-// // ─── Google Auth ───────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/google
-//  */
-// const googleAuth = async (req, res) => {
-//   try {
-//     const { idToken } = req.body;
-
-//     if (!idToken) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'ID token is required',
-//       });
-//     }
-
-//     // TODO: Verify Google ID token
-//     logger.info('🔐 Google auth not fully implemented');
-
-//     return res.status(501).json({
-//       success: false,
-//       message: 'Google authentication not yet implemented',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Google auth error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Google authentication failed',
-//     });
-//   }
-// };
-
-// // ─── Refresh Token ─────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/refresh-token
-//  */
-// const refreshToken = async (req, res) => {
-//   try {
-//     const { refreshToken: oldToken } = req.body;
-
-//     if (!oldToken) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Refresh token is required',
-//       });
-//     }
-
-//     // TODO: Implement refresh token logic
-//     logger.info('🔄 Refresh token not fully implemented');
-
-//     return res.status(501).json({
-//       success: false,
-//       message: 'Refresh token not yet implemented',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Refresh token error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Token refresh failed',
-//     });
-//   }
-// };
-
-// // ─── Logout ────────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/logout
-//  */
-// const logout = async (req, res) => {
-//   try {
-//     logger.info(`👤 User ${req.user?.id} logged out`);
-
-//     return res.status(200).json({
-//       success: true,
-//       message: 'Logged out successfully',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Logout error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Logout failed',
-//     });
-//   }
-// };
-
-// // ─── Get Profile ───────────────────────────────────────────────────────
-// /**
-//  * GET /api/v1/auth/profile
-//  */
-// const getProfile = async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user?.id).select('-password');
-
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'User not found',
-//       });
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       data: user,
-//     });
-//   } catch (error) {
-//     logger.error('❌ Get profile error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Failed to get profile',
-//     });
-//   }
-// };
-
-// // ─── Update Profile ────────────────────────────────────────────────────
-// /**
-//  * PUT /api/v1/auth/profile
-//  */
-// const updateProfile = async (req, res) => {
-//   try {
-//     const { name, avatar, state, district, address } = req.body;
-//     const userId = req.user?.id;
-
-//     if (!userId) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Unauthorized',
-//       });
-//     }
-
-//     const user = await User.findByIdAndUpdate(
-//       userId,
-//       {
-//         ...(name && { name }),
-//         ...(avatar && { avatar }),
-//         ...(state && { state }),
-//         ...(district && { district }),
-//         ...(address && { address }),
-//       },
-//       { new: true }
-//     ).select('-password');
-
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'User not found',
-//       });
-//     }
-
-//     logger.info(`✅ Profile updated: ${user._id}`);
-
-//     return res.status(200).json({
-//       success: true,
-//       message: 'Profile updated successfully',
-//       data: user,
-//     });
-//   } catch (error) {
-//     logger.error('❌ Update profile error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Failed to update profile',
-//     });
-//   }
-// };
-
-// module.exports = {
-//   sendOtp,
-//   verifyOtp,
-//   register,
-//   googleAuth,
-//   refreshToken,
-//   logout,
-//   getProfile,
-//   updateProfile,
-// };
-
-
-// const User = require('../models/User');
-// const OTP = require('../models/OTP');
-// const jwt = require('jsonwebtoken');
-// const logger = require('../utils/logger');
-// const { sendOTP } = require('../config/sms');
-// const mongoose = require('mongoose');
-
-// // ─── Helper: Check Database Connection ────────────────────────────────
-// const checkDatabaseConnection = async () => {
-//   try {
-//     if (mongoose.connection.readyState !== 1) {
-//       throw new Error('Database connection not established');
-//     }
-//     return true;
-//   } catch (error) {
-//     logger.error('❌ Database connection check failed:', error.message);
-//     throw error;
-//   }
-// };
-
-// const generateToken = (userId, phone, role) => {
-//   return jwt.sign(
-//     { id: userId, phone, role },
-//     process.env.JWT_SECRET,
-//     { expiresIn: process.env.JWT_EXPIRE || '7d' }
-//   );
-// };
-
-// exports.sendOtp = async (req, res) => {
-//   const { phone } = req.body;
-//   const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-  
-//   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-//   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-//   await OTP.findOneAndUpdate(
-//     { phone: cleanPhone },
-//     { phone: cleanPhone, otp, expiresAt, attempts: 0 },
-//     { upsert: true, new: true }
-//   );
-
-//   await sendOTP(`+91${cleanPhone}`, otp);
-//   res.status(200).json({ success: true, message: 'OTP sent successfully' });
-// };
-
-// exports.verifyOtp = async (req, res) => {
-//   const { phone, otp } = req.body;
-//   const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-
-//   const otpRecord = await OTP.findOne({ phone: cleanPhone });
-//   if (!otpRecord || otpRecord.otp !== otp) {
-//     return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
-//   }
-
-//   let user = await User.findOne({ phone: cleanPhone });
-//   if (!user) {
-//     user = await User.create({
-//       phone: cleanPhone,
-//       role: req.body.role || 'farmer',
-//       name: `User ${cleanPhone}`,
-//       isVerified: false
-//     });
-//   }
-
-//   const token = generateToken(user._id, user.phone, user.role);
-//   await OTP.deleteOne({ phone: cleanPhone });
-
-//   res.status(200).json({
-//     success: true,
-//     data: { token, user }
-//   });
-// };
-
-
-// // ─── Helper: Generate JWT Token ────────────────────────────────────────
-// // const generateToken = (userId, phone, role) => {
-// //   return jwt.sign(
-// //     {
-// //       id: userId,
-// //       phone,
-// //       role,
-// //     },
-// //     process.env.JWT_SECRET || 'your-secret-key',
-// //     { expiresIn: process.env.JWT_EXPIRE || '7d' }
-// //   );
-// // };
-
-// // ─── Send OTP ──────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/send-otp
-//  */
-// // const sendOtp = async (req, res) => {
-// //   try {
-// //     // Check database connection
-// //     await checkDatabaseConnection();
-
-// //     const { phone } = req.body;
-
-// //     if (!phone) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: 'Phone is required',
-// //       });
-// //     }
-
-// //     // Validate phone format (10 digits)
-// //     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-// //     if (cleanPhone.length !== 10 || !/^\d+$/.test(cleanPhone)) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: 'Invalid phone number format',
-// //       });
-// //     }
-
-// //     // Generate 6-digit OTP
-// //     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-// //     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-// //     logger.info(`📱 Sending OTP to ${cleanPhone}`);
-
-// //     // Save OTP to database
-// //     await OTP.findOneAndUpdate(
-// //       { phone: cleanPhone },
-// //       {
-// //         phone: cleanPhone,
-// //         otp,
-// //         expiresAt,
-// //         attempts: 0,
-// //       },
-// //       { upsert: true, new: true }
-// //     );
-
-// //     // Send actual SMS
-// //     const e164Phone = `+91${cleanPhone}`;
-// //     await sendOTP(e164Phone, otp);
-
-// //     return res.status(200).json({
-// //       success: true,
-// //       message: 'OTP sent successfully',
-// //       data: {
-// //         phone: cleanPhone,
-// //         expiresIn: 600, // 10 minutes
-// //       },
-// //     });
-// //   } catch (error) {
-// //     logger.error('❌ Send OTP error:', {
-// //       message: error.message,
-// //       stack: error.stack,
-// //       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-// //     });
-    
-// //     return res.status(503).json({
-// //       success: false,
-// //       message: error.message.includes('connection') 
-// //         ? 'Database connection error. Please try again later.' 
-// //         : error.message || 'Failed to send OTP',
-// //       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-// //     });
-// //   }
-// // };
-
-// // ─── Verify OTP ────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/verify-otp
-//  */
-// // const verifyOtp = async (req, res) => {
-// //   try {
-// //     // Check database connection
-// //     await checkDatabaseConnection();
-
-// //     const { phone, otp } = req.body;
-
-// //     if (!phone || !otp) {
-// //       return res.status(400).json({
-// //         success: false,
-// //         message: 'Phone and OTP are required',
-// //       });
-// //     }
-
-// //     // Clean phone number
-// //     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-
-// //     logger.info(`🔐 Verifying OTP for ${cleanPhone}`);
-
-// //     // Find OTP record
-// //     const otpRecord = await OTP.findOne({ phone: cleanPhone });
-
-// //     if (!otpRecord) {
-// //       return res.status(401).json({
-// //         success: false,
-// //         message: 'No OTP found. Please request a new OTP.',
-// //       });
-// //     }
-
-// //     // Check if OTP expired
-// //     if (new Date() > otpRecord.expiresAt) {
-// //       logger.warn(`⏰ OTP expired for ${cleanPhone}`);
-// //       await OTP.deleteOne({ phone: cleanPhone });
-// //       return res.status(401).json({
-// //         success: false,
-// //         message: 'OTP expired. Please request a new OTP.',
-// //       });
-// //     }
-
-// //     // Check if OTP matches
-// //     if (otpRecord.otp !== otp.toString()) {
-// //       otpRecord.attempts += 1;
-
-// //       // Lock after 3 failed attempts
-// //       if (otpRecord.attempts >= 3) {
-// //         logger.warn(`🔒 Too many OTP attempts for ${cleanPhone}`);
-// //         await OTP.deleteOne({ phone: cleanPhone });
-// //         return res.status(401).json({
-// //           success: false,
-// //           message: 'Too many failed attempts. Please request a new OTP.',
-// //         });
-// //       }
-
-// //       await otpRecord.save();
-// //       return res.status(401).json({
-// //         success: false,
-// //         message: 'Invalid OTP. Please try again.',
-// //       });
-// //     }
-
-// //     // OTP verified successfully
-// //     logger.info(`✅ OTP verified for ${cleanPhone}`);
-
-// //     // Check if user exists
-// //     let user = await User.findOne({ phone: cleanPhone });
-
-// //     if (!user) {
-// //       // Create new user
-// //       user = new User({
-// //         phone: cleanPhone,
-// //         role: 'farmer',
-// //         name: `User ${cleanPhone}`,
-// //         state: '',
-// //         district: '',
-// //         isVerified: false,
-// //       });
-// //       await user.save();
-// //       logger.info(`✅ New user created: ${user._id}`);
-// //     } else {
-// //       logger.info(`✅ Existing user: ${user._id}`);
-// //     }
-
-// //     // Generate JWT token
-// //     const token = generateToken(user._id, user.phone, user.role);
-
-// //     // Delete OTP after successful verification
-// //     await OTP.deleteOne({ phone: cleanPhone });
-
-// //     return res.status(200).json({
-// //       success: true,
-// //       message: 'OTP verified successfully',
-// //       data: {
-// //         token,
-// //         user: {
-// //           _id: user._id,
-// //           name: user.name,
-// //           phone: user.phone,
-// //           role: user.role,
-// //           avatar: user.avatar || null,
-// //           isVerified: user.isVerified,
-// //         },
-// //       },
-// //     });
-// //   } catch (error) {
-// //     logger.error('❌ Verify OTP error:', {
-// //       message: error.message,
-// //       stack: error.stack,
-// //       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-// //     });
-    
-// //     return res.status(503).json({
-// //       success: false,
-// //       message: error.message.includes('connection') 
-// //         ? 'Database connection error. Please try again later.' 
-// //         : error.message || 'Failed to verify OTP',
-// //       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-// //     });
-// //   }
-// // };
-
-// // ─── Register (Optional - for additional info) ──────────────────────────
-// /**
-//  * POST /api/v1/auth/register
-//  */
-// const register = async (req, res) => {
-//   try {
-//     // Check database connection
-//     await checkDatabaseConnection();
-
-//     const { phone, name, role, state, district } = req.body;
-
-//     if (!phone || !name) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Phone and name are required',
-//       });
-//     }
-
-//     const cleanPhone = phone.toString().replace(/^\+?91|^0/, '').slice(-10);
-
-//     let user = await User.findOne({ phone: cleanPhone });
-
-//     if (user) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'User already exists',
-//       });
-//     }
-
-//     user = new User({
-//       phone: cleanPhone,
-//       name,
-//       role: role || 'farmer',
-//       state: state || '',
-//       district: district || '',
-//       isVerified: false,
-//     });
-
-//     await user.save();
-//     logger.info(`✅ User registered: ${user._id}`);
-
-//     const token = generateToken(user._id, user.phone, user.role);
-
-//     return res.status(201).json({
-//       success: true,
-//       message: 'User registered successfully',
-//       data: {
-//         token,
-//         user: {
-//           _id: user._id,
-//           name: user.name,
-//           phone: user.phone,
-//           role: user.role,
-//           state: user.state,
-//           district: user.district,
-//           isVerified: user.isVerified,
-//         },
-//       },
-//     });
-//   } catch (error) {
-//     logger.error('❌ Register error:', {
-//       message: error.message,
-//       stack: error.stack,
-//       isConnectionError: error.message.includes('connection') || error.message.includes('connect'),
-//     });
-    
-//     return res.status(503).json({
-//       success: false,
-//       message: error.message.includes('connection') 
-//         ? 'Database connection error. Please check your connection and try again.' 
-//         : error.message || 'Registration failed',
-//       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-//     });
-//   }
-// };
-
-// // ─── Google Auth ───────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/google
-//  */
-// const googleAuth = async (req, res) => {
-//   try {
-//     const { idToken } = req.body;
-
-//     if (!idToken) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'ID token is required',
-//       });
-//     }
-
-//     // TODO: Verify Google ID token
-//     logger.info('🔐 Google auth not fully implemented');
-
-//     return res.status(501).json({
-//       success: false,
-//       message: 'Google authentication not yet implemented',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Google auth error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Google authentication failed',
-//     });
-//   }
-// };
-
-// // ─── Refresh Token ─────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/refresh-token
-//  */
-// const refreshToken = async (req, res) => {
-//   try {
-//     const { refreshToken: oldToken } = req.body;
-
-//     if (!oldToken) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Refresh token is required',
-//       });
-//     }
-
-//     // TODO: Implement refresh token logic
-//     logger.info('🔄 Refresh token not fully implemented');
-
-//     return res.status(501).json({
-//       success: false,
-//       message: 'Refresh token not yet implemented',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Refresh token error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Token refresh failed',
-//     });
-//   }
-// };
-
-// // ─── Logout ────────────────────────────────────────────────────────────
-// /**
-//  * POST /api/v1/auth/logout
-//  */
-// const logout = async (req, res) => {
-//   try {
-//     logger.info(`👤 User ${req.user?.id} logged out`);
-
-//     return res.status(200).json({
-//       success: true,
-//       message: 'Logged out successfully',
-//     });
-//   } catch (error) {
-//     logger.error('❌ Logout error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Logout failed',
-//     });
-//   }
-// };
-
-// // ─── Get Profile ───────────────────────────────────────────────────────
-// /**
-//  * GET /api/v1/auth/profile
-//  */
-// const getProfile = async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user?.id).select('-password');
-
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'User not found',
-//       });
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       data: user,
-//     });
-//   } catch (error) {
-//     logger.error('❌ Get profile error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Failed to get profile',
-//     });
-//   }
-// };
-
-// // ─── Update Profile ────────────────────────────────────────────────────
-// /**
-//  * PUT /api/v1/auth/profile
-//  */
-// const updateProfile = async (req, res) => {
-//   try {
-//     const { name, avatar, state, district, address } = req.body;
-//     const userId = req.user?.id;
-
-//     if (!userId) {
-//       return res.status(401).json({
-//         success: false,
-//         message: 'Unauthorized',
-//       });
-//     }
-
-//     const user = await User.findByIdAndUpdate(
-//       userId,
-//       {
-//         ...(name && { name }),
-//         ...(avatar && { avatar }),
-//         ...(state && { state }),
-//         ...(district && { district }),
-//         ...(address && { address }),
-//       },
-//       { new: true }
-//     ).select('-password');
-
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'User not found',
-//       });
-//     }
-
-//     logger.info(`✅ Profile updated: ${user._id}`);
-
-//     return res.status(200).json({
-//       success: true,
-//       message: 'Profile updated successfully',
-//       data: user,
-//     });
-//   } catch (error) {
-//     logger.error('❌ Update profile error:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Failed to update profile',
-//     });
-//   }
-// };
-
-// module.exports = {
-//   sendOtp,
-//   verifyOtp,
-//   register,
-//   googleAuth,
-//   refreshToken,
-//   logout,
-//   getProfile,
-//   updateProfile,
-// };
-
-'use strict';
-/**
- * authController.js
- * Handles OTP-based phone authentication.
- * No email/password required — phone is the sole identity anchor.
- */
-
-const crypto  = require('crypto');
-const User    = require('../models/User');
-const OTP     = require('../models/OTP');
-const logger  = require('../utils/logger');
-const { sendOTP }             = require('../config/sms');
+const User = require('../models/User');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
-const { TokenBlacklist }      = require('../models/TokenBlacklist');
-const { sanitizePhone }       = require('../utils/helpers');
+const { redis } = require('../config/redis');
+const { sendOTP } = require('../config/sms');
+const { generateOTP, sanitizePhone, isValidIndianPhone, hashString } = require('../utils/helpers');
+const { sendSuccess, sendCreated, sendError, sendUnauthorized, sendValidationError } = require('../utils/apiResponse');
+const NotificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Generate a cryptographically secure 6-digit OTP.
- * Uses crypto.randomInt (not Math.random) — safe for authentication.
- */
-const generateSecureOTP = () => crypto.randomInt(100_000, 999_999).toString();
+// ─── HELPERS ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Hash an OTP before DB storage so a DB breach doesn't expose live codes.
+ * Shared OTP verification logic with brute-force protection.
+ * Returns { success, error, status, user }
  */
-const hashOTP = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
+const verifyOtpHelper = async (phone, otp) => {
+  const normalizedPhone = sanitizePhone(phone);
+  const LOCKOUT_KEY = `lockout:otp:${normalizedPhone}`;
+  const ATTEMPTS_KEY = `attempts:otp:${normalizedPhone}`;
 
-// ─── POST /api/v1/auth/send-otp ───────────────────────────────────────────────
+  // 1. Check if account is locked in Redis (Distributed Lockout)
+  const isLocked = await redis.get(LOCKOUT_KEY);
+  if (isLocked) {
+    const ttl = await redis.ttl(LOCKOUT_KEY);
+    const remaining = Math.ceil(ttl / 60);
+    return { success: false, error: `Too many failed attempts. Try again in ${remaining} minutes.`, status: 403 };
+  }
+
+  const user = await User.findOne({ phone: normalizedPhone }).select('+otp +refreshToken');
+  if (!user) return { success: false, error: 'User not found', status: 401 };
+  if (!user.otp?.code || !user.otp?.expiresAt) return { success: false, error: 'No active OTP. Request a new one.', status: 401 };
+
+  // 2. Check Expiry
+  if (new Date() > user.otp.expiresAt) return { success: false, error: 'OTP expired', status: 401 };
+
+  // 3. Validate
+  const hashedOtp = hashString(otp);
+  if (user.otp.code !== hashedOtp) {
+    const attempts = await redis.incr(ATTEMPTS_KEY);
+
+    // Set expiry if first attempt
+    if (attempts === 1) await redis.expire(ATTEMPTS_KEY, 15 * 60);
+
+    if (attempts >= 5) {
+      await redis.set(LOCKOUT_KEY, 'true', 'EX', 15 * 60);
+      await redis.del(ATTEMPTS_KEY);
+      logger.warn(`User ${normalizedPhone} locked out after 5 failed attempts.`);
+      return { success: false, error: 'Account locked for 15 minutes due to too many failed attempts.', status: 403 };
+    }
+
+    // Also update DB for fallback/audit
+    await User.findByIdAndUpdate(user._id, { 'otp.wrongAttempts': attempts });
+
+    const remaining = 5 - attempts;
+    return {
+      success: false,
+      error: `Invalid OTP. ${remaining} attempts remaining.`,
+      status: 401
+    };
+  }
+
+  // Success: Clear Redis tracking
+  await redis.del(ATTEMPTS_KEY);
+  await redis.del(LOCKOUT_KEY);
+
+  return { success: true, user };
+};
+
+// ─── SEND OTP ───────────────────────────────────────────────────────────────────────────
 const sendOtp = async (req, res) => {
-  try {
-    const { phone } = req.body;
+  const { phone, role } = req.body;
+  const normalizedPhone = sanitizePhone(phone);
 
-    if (!phone) {
-      return res.status(400).json({ success: false, message: 'Phone number is required' });
-    }
+  if (!isValidIndianPhone(normalizedPhone)) {
+    return sendValidationError(res, [{ field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' }]);
+  }
 
-    // Normalise to 10-digit local format
-    const cleanPhone = sanitizePhone(phone).replace('+91', '');
-    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
-      return res.status(400).json({ success: false, message: 'Invalid Indian mobile number' });
-    }
+  let user = await User.findOne({ phone: normalizedPhone }).select('+otp');
+  const isNewUser = !user;
 
-    const otp       = generateSecureOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  // Rate limiting: max 5 OTPs per 20 minutes (hardened)
+  if (user?.otp?.attempts >= 5 && user.otp.expiresAt > new Date(Date.now() - 20 * 60 * 1000)) {
+    return sendError(res, { message: 'Too many OTP requests. Please wait 15 minutes.', statusCode: 429 });
+  }
 
-    // Upsert OTP record — store hashed value
-    await OTP.findOneAndUpdate(
-      { phone: cleanPhone },
-      { phone: cleanPhone, otp: hashOTP(otp), expiresAt, attempts: 0 },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+  const otp = generateOTP();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+  const otpData = {
+    'otp.code': hashString(otp),
+    'otp.expiresAt': expiresAt,
+    'otp.attempts': (user?.otp?.attempts || 0) + 1,
+  };
+
+  if (user) {
+    await User.findByIdAndUpdate(user._id, otpData);
+  } else {
+    await User.findOneAndUpdate(
+      { phone: normalizedPhone },
+      { $set: { phone: normalizedPhone, role: role || 'farmer', ...otpData } },
+      { upsert: true }
     );
-
-    // Send SMS
-    await sendOTP(`+91${cleanPhone}`, otp);
-    logger.info(`📱 OTP dispatched → ${cleanPhone}`);
-
-    return res.status(200).json({
-      success: true,
-      message: 'OTP sent successfully',
-      data: { phone: cleanPhone, expiresIn: 600 },
-    });
-  } catch (err) {
-    logger.error('sendOtp error:', err);
-    return res.status(500).json({
-      success: false,
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Failed to send OTP',
-    });
   }
+
+  await sendOTP(`+91${normalizedPhone}`, otp);
+  logger.info(`OTP sent to ${normalizedPhone}`);
+  console.log(otp)
+  return sendSuccess(res, {
+    message: `OTP sent to ${normalizedPhone}`,
+    data: { phone: normalizedPhone, isNewUser, expiresIn: 300 },
+  });
 };
 
-// ─── POST /api/v1/auth/verify-otp ────────────────────────────────────────────
+// ─── VERIFY OTP / LOGIN ─────────────────────────────────────────────────────────────
 const verifyOtp = async (req, res) => {
-  try {
-    const { phone, otp } = req.body;
+  const { phone, otp, fcmToken } = req.body;
 
-    if (!phone || !otp) {
-      return res.status(400).json({ success: false, message: 'Phone and OTP are required' });
-    }
-
-    const cleanPhone = sanitizePhone(phone).replace('+91', '');
-
-    const otpRecord = await OTP.findOne({ phone: cleanPhone });
-
-    if (!otpRecord) {
-      return res.status(401).json({ success: false, message: 'No OTP found. Please request a new one.' });
-    }
-
-    if (new Date() > otpRecord.expiresAt) {
-      await OTP.deleteOne({ phone: cleanPhone });
-      return res.status(401).json({ success: false, message: 'OTP has expired. Please request a new one.' });
-    }
-
-    if (otpRecord.otp !== hashOTP(otp.toString())) {
-      otpRecord.attempts += 1;
-      if (otpRecord.attempts >= 5) {
-        await OTP.deleteOne({ phone: cleanPhone });
-        return res.status(429).json({ success: false, message: 'Too many failed attempts. Please request a new OTP.' });
-      }
-      await otpRecord.save();
-      return res.status(401).json({
-        success: false,
-        message: `Invalid OTP. ${5 - otpRecord.attempts} attempts remaining.`,
-      });
-    }
-
-    // OTP is valid — clean it up
-    await OTP.deleteOne({ phone: cleanPhone });
-
-    // Upsert user (create on first login)
-    let user = await User.findOne({ phone: cleanPhone });
-    const isNewUser = !user;
-
-    if (isNewUser) {
-      user = await User.create({
-        phone: cleanPhone,
-        name: `User ${cleanPhone.slice(-4)}`,  // placeholder; app prompts profile completion
-        role: 'farmer',                          // default role; changed during registration step
-        isPhoneVerified: true,
-      });
-      logger.info(`✅ New user created: ${user._id}`);
-    } else {
-      user.isPhoneVerified = true;
-      user.metadata = user.metadata || {};
-      user.metadata.lastLogin  = new Date();
-      user.metadata.loginCount = (user.metadata.loginCount || 0) + 1;
-      await user.save();
-      logger.info(`✅ Existing user logged in: ${user._id}`);
-    }
-
-    const { accessToken, refreshToken, expiresIn } = generateTokenPair(user);
-
-    // Persist refresh token hash on the user document
-    user.refreshToken = hashOTP(refreshToken); // reuse SHA-256 helper
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: isNewUser ? 'Account created successfully' : 'Login successful',
-      data: {
-        token: accessToken,          // short-lived (15 min)
-        refreshToken,                // long-lived (7 days) — store in SecureStore
-        expiresIn,
-        isNewUser,
-        user: {
-          _id:        user._id,
-          name:       user.name,
-          phone:      user.phone,
-          role:       user.role,
-          avatar:     user.avatar   || null,
-          isVerified: user.isVerified,
-          farmerId:   user.farmerId || null,
-          gstNumber:  user.gstNumber || null,
-        },
-      },
-    });
-  } catch (err) {
-    logger.error('verifyOtp error:', err);
-    return res.status(500).json({
-      success: false,
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Verification failed',
-    });
+  const result = await verifyOtpHelper(phone, otp);
+  if (!result.success) {
+    return res.status(result.status).json({ success: false, error: result.error });
   }
+
+  const user = result.user;
+
+  // Success: Clear OTP data and reset wrong attempts
+  const update = {
+    $unset: { 'otp.code': 1, 'otp.expiresAt': 1, 'otp.lockedUntil': 1 },
+    $set: { 'otp.attempts': 0, 'otp.wrongAttempts': 0, lastLoginAt: new Date() },
+  };
+
+  if (fcmToken) {
+    update.$addToSet = { fcmTokens: fcmToken };
+  }
+
+  await User.findByIdAndUpdate(user._id, update);
+
+  const { accessToken, refreshToken, expiresIn, csrfToken } = generateTokenPair(user);
+  await User.findByIdAndUpdate(user._id, { refreshToken: hashString(refreshToken) });
+
+  logger.info(`User logged in: ${user._id}`);
+
+  return sendSuccess(res, {
+    message: 'Login successful',
+    data: {
+      user: user.toSafeObject(),
+      accessToken,
+      refreshToken,
+      csrfToken,
+      expiresIn,
+      isNewUser: !user.name,
+    },
+  });
 };
 
-// ─── POST /api/v1/auth/register ──────────────────────────────────────────────
-/**
- * Called AFTER successful OTP verification to complete the user profile.
- * Accepts name, role, and role-specific fields (farmerId / gstNumber etc.).
- * Does NOT require email or password.
- */
+// ─── REGISTER ─────────────────────────────────────────────────────────────────────────────
 const register = async (req, res) => {
+  const { name, phone, email, role, farmerId, governmentId, companyName, gstNumber, businessAddress, location, language, otp, fcmToken } = req.body;
+  const normalizedPhone = sanitizePhone(phone);
+
+  // Verify OTP via helper
+  const result = await verifyOtpHelper(phone, otp);
+  if (!result.success) {
+    return res.status(result.status).json({ success: false, error: result.error });
+  }
+
+  const tempUser = result.user;
+
+  // Check if already registered with name
+  if (tempUser.name) {
+    return sendError(res, { message: 'Phone number already registered. Please login.', statusCode: 409 });
+  }
+
+  // Check email uniqueness
+  if (email) {
+    const emailExists = await User.findOne({ email: email.toLowerCase() });
+    if (emailExists) {
+      return sendError(res, { message: 'Email already registered', statusCode: 409 });
+    }
+  }
+
+  // Update user with registration data
+  const updateData = {
+    name,
+    email: email?.toLowerCase(),
+    role,
+    language: language || 'en',
+    $unset: { 'otp.code': 1, 'otp.expiresAt': 1 },
+    $set: { 'otp.attempts': 0 },
+  };
+
+  if (role === 'farmer') {
+    updateData.farmerId = farmerId;
+    updateData.governmentId = governmentId;
+  } else if (role === 'buyer') {
+    updateData.companyName = companyName;
+    updateData.gstNumber = gstNumber;
+    updateData.businessAddress = businessAddress;
+  }
+
+  if (location) {
+    updateData.location = {
+      type: 'Point',
+      coordinates: [parseFloat(location.lng), parseFloat(location.lat)],
+      address: location.address,
+      city: location.city,
+      state: location.state,
+      pincode: location.pincode,
+    };
+  }
+
+  if (fcmToken) {
+    updateData.$addToSet = { fcmTokens: fcmToken };
+  }
+
+  const user = await User.findByIdAndUpdate(tempUser._id, updateData, { new: true, runValidators: true });
+
+  const { accessToken, refreshToken, csrfToken, expiresIn } = generateTokenPair(user);
+  await User.findByIdAndUpdate(user._id, { refreshToken: hashString(refreshToken) });
+
+  // Notify admin of new registration
+  const admins = await User.find({ role: 'admin' }).select('_id');
+  if (admins.length > 0) {
+    NotificationService.createBulk(
+      admins.map((a) => a._id),
+      {
+        type: 'system',
+        title: '👤 New User Registration',
+        body: `${name} registered as ${role}. Verification required.`,
+        priority: 'normal',
+      }
+    ).catch(() => { });
+  }
+
+  logger.info(`New user registered: ${user._id} (${role})`);
+
+  return sendCreated(res, {
+    message: 'Registration successful! Your account is pending verification.',
+    data: {
+      user: user.toSafeObject(),
+      accessToken,
+      refreshToken,
+    },
+  });
+};
+
+// ─── GOOGLE AUTH ────────────────────────────────────────────────────────────────────────
+const googleAuth = async (req, res) => {
+  const { idToken, role } = req.body;
   try {
-    const { phone, name, role, farmerId, govtId, companyName, gstNumber, businessAddress, email } = req.body;
+    // Verify Google ID token
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, name, picture } = payload;
 
-    if (!phone || !name) {
-      return res.status(400).json({ success: false, message: 'Phone and name are required' });
-    }
-    if (!['farmer', 'buyer'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Role must be farmer or buyer' });
-    }
+    const googleIdStr = String(googleId);
+    const emailStr = String(email).toLowerCase();
 
-    const cleanPhone = sanitizePhone(phone).replace('+91', '');
+    let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] });
 
-    // The user record must already exist (created during verifyOtp)
-    const user = await User.findOne({ phone: cleanPhone });
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'Phone number not verified. Please complete OTP verification first.',
+      user = await User.create({
+        name,
+        email: email?.toLowerCase(),
+        googleId,
+        role: role || 'buyer',
+        avatar: { url: picture },
+        isVerified: false,
+        verificationStatus: 'pending',
+        // Phone optional - require manual verification/add later
       });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
+      await user.save();
     }
 
-    // Update profile fields
-    user.name = name.trim();
-    user.role = role;
+    const { accessToken, refreshToken } = generateTokenPair(user);
+    await User.findByIdAndUpdate(user._id, { refreshToken: hashString(refreshToken), lastLoginAt: new Date() });
 
-    if (email)           user.email           = email.toLowerCase().trim();
-    if (farmerId)        user.farmerId        = farmerId.trim();
-    if (govtId)          user.govtId          = govtId.trim();
-    if (companyName)     user.companyName     = companyName.trim();
-    if (gstNumber)       user.gstNumber       = gstNumber.trim();
-    if (businessAddress) user.businessAddress = businessAddress.trim();
-
-    await user.save();
-    logger.info(`✅ Profile registered for user ${user._id} as ${role}`);
-
-    const { accessToken, refreshToken, expiresIn } = generateTokenPair(user);
-    user.refreshToken = hashOTP(refreshToken);
-    await user.save();
-
-    return res.status(201).json({
-      success: true,
-      message: 'Registration complete',
-      data: {
-        token: accessToken,
-        refreshToken,
-        expiresIn,
-        user: {
-          _id:        user._id,
-          name:       user.name,
-          phone:      user.phone,
-          email:      user.email   || null,
-          role:       user.role,
-          avatar:     user.avatar  || null,
-          isVerified: user.isVerified,
-          farmerId:   user.farmerId  || null,
-          gstNumber:  user.gstNumber || null,
-        },
-      },
+    return sendSuccess(res, {
+      message: 'Google authentication successful',
+      data: { user: user.toSafeObject(), accessToken, refreshToken },
     });
-  } catch (err) {
-    logger.error('register error:', err);
-    if (err.code === 11000) {
-      const field = Object.keys(err.keyValue)[0];
-      return res.status(409).json({ success: false, message: `${field} is already in use` });
-    }
-    return res.status(500).json({
-      success: false,
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Registration failed',
-    });
+  } catch (error) {
+    logger.error('Google auth error:', error.message);
+    return sendUnauthorized(res, 'Google authentication failed');
   }
 };
 
-// ─── POST /api/v1/auth/refresh-token ─────────────────────────────────────────
+// ─── REFRESH TOKEN ─────────────────────────────────────────────────────────────────────
 const refreshToken = async (req, res) => {
+  const { refreshToken: token } = req.body;
+  if (!token) return sendUnauthorized(res, 'Refresh token required');
+
   try {
-    const { refreshToken: token } = req.body;
-    if (!token) {
-      return res.status(400).json({ success: false, message: 'Refresh token is required' });
-    }
-
-    // Verify the JWT signature
-    let decoded;
-    try {
-      decoded = verifyRefreshToken(token);
-    } catch {
-      return res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
-    }
-
-    // Check blacklist
-    const blacklisted = await TokenBlacklist.findOne({ token });
-    if (blacklisted) {
-      return res.status(401).json({ success: false, message: 'Token has been revoked' });
-    }
-
-    // Verify stored hash matches
+    const decoded = verifyRefreshToken(token);
     const user = await User.findById(decoded.id).select('+refreshToken');
-    if (!user || user.refreshToken !== hashOTP(token)) {
-      return res.status(401).json({ success: false, message: 'Refresh token mismatch' });
+    if (!user) return sendUnauthorized(res, 'User not found');
+
+    // Token Rotation & Reuse Detection
+    const hashedToken = hashString(token);
+    if (user.refreshToken !== hashedToken) {
+      // Detection of reuse: someone is using an old/stolen token
+      logger.error(`🚨 Refresh token reuse detected for user ${user._id}. Possible token theft!`);
+      // Revoke ALL access as a precaution
+      await User.findByIdAndUpdate(user._id, { $unset: { refreshToken: 1 } });
+      return sendUnauthorized(res, 'Security violation: please login again');
     }
 
-    // Issue new token pair (rotation)
-    const newPair = generateTokenPair(user);
-    user.refreshToken = hashOTP(newPair.refreshToken);
-    await user.save();
+    const { accessToken, refreshToken: newRefreshToken, csrfToken, expiresIn } = generateTokenPair(user);
 
-    // Blacklist the old refresh token
-    await TokenBlacklist.create({
-      token,
-      tokenType: 'refresh',
-      userId: user._id,
-      reason: 'rotation',
-      expiresAt: new Date(decoded.exp * 1000),
+    // Rotate: Issue new RT and invalidate old one
+    await User.findByIdAndUpdate(user._id, {
+      refreshToken: hashString(newRefreshToken),
+      lastLoginAt: new Date()
     });
 
-    return res.status(200).json({
-      success: true,
+    logger.info(`Token rotated for user ${user._id}`);
+
+    return sendSuccess(res, {
       message: 'Token refreshed',
-      data: {
-        token:        newPair.accessToken,
-        refreshToken: newPair.refreshToken,
-        expiresIn:    newPair.expiresIn,
-      },
+      data: { accessToken, refreshToken: newRefreshToken, csrfToken, expiresIn },
     });
   } catch (err) {
-    logger.error('refreshToken error:', err);
-    return res.status(500).json({ success: false, message: 'Token refresh failed' });
+    logger.warn(`Refresh failed: ${err.message}`);
+    return sendUnauthorized(res, 'Invalid or expired refresh token');
   }
 };
 
-// ─── POST /api/v1/auth/logout ─────────────────────────────────────────────────
+// ─── LOGOUT ───────────────────────────────────────────────────────────────────────────────
 const logout = async (req, res) => {
   try {
-    const userId = req.user?.id;
-    if (userId) {
-      await User.findByIdAndUpdate(userId, { refreshToken: null });
+    const { fcmToken } = req.body;
+    const token = req.token;
+
+    // 1. Blacklist current access token in Redis (TTL 15m matching JWT_EXPIRE)
+    if (token) {
+      const BLACKLIST_PREFIX = 'blacklist:token:';
+      await redis.set(`${BLACKLIST_PREFIX}${token}`, 'true', 'EX', 15 * 60);
     }
 
-    // Optionally blacklist the current access token
-    const token = req.headers.authorization?.split(' ')[1];
-    if (token && userId) {
-      const { verifyAccessToken } = require('../utils/jwt');
-      try {
-        const decoded = verifyAccessToken(token);
-        await TokenBlacklist.create({
-          token,
-          tokenType: 'access',
-          userId,
-          reason: 'logout',
-          expiresAt: new Date(decoded.exp * 1000),
-        });
-      } catch {
-        // Token already expired — no need to blacklist
-      }
+    // 2. Remove refresh token from DB and FCM token if provided
+    const update = { $unset: { refreshToken: 1 } };
+    if (fcmToken) {
+      update.$pull = { fcmTokens: fcmToken };
     }
 
-    logger.info(`👤 User ${userId} logged out`);
-    return res.status(200).json({ success: true, message: 'Logged out successfully' });
+    await User.findByIdAndUpdate(req.user._id, update);
+
+    logger.info(`User logged out: ${req.user._id}${fcmToken ? ' (FCM token removed)' : ''}`);
+    return sendSuccess(res, { message: 'Logged out successfully' });
   } catch (err) {
-    logger.error('logout error:', err);
-    return res.status(500).json({ success: false, message: 'Logout failed' });
+    logger.error('Logout error:', err.message);
+    return sendError(res, { message: 'Logout failed', statusCode: 500 });
   }
 };
 
-// ─── GET /api/v1/auth/profile ─────────────────────────────────────────────────
+// ─── GET PROFILE ─────────────────────────────────────────────────────────────────────────
 const getProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    return res.status(200).json({ success: true, data: user });
-  } catch (err) {
-    logger.error('getProfile error:', err);
-    return res.status(500).json({ success: false, message: 'Failed to fetch profile' });
-  }
+  const user = await User.findById(req.user._id);
+  return sendSuccess(res, { data: { user: user.toSafeObject() } });
 };
 
-// ─── PUT /api/v1/auth/profile ─────────────────────────────────────────────────
+// ─── UPDATE PROFILE ──────────────────────────────────────────────────────────────────────
 const updateProfile = async (req, res) => {
-  try {
-    const { name, email, avatar, companyName, gstNumber, farmerId, businessAddress, preferences, fcmToken } = req.body;
+  const { name, email, language, fcmToken, location, companyName, businessAddress, username, avatar } = req.body;
 
-    const allowedUpdates = {};
-    if (name)            allowedUpdates.name            = name.trim();
-    if (email)           allowedUpdates.email           = email.toLowerCase().trim();
-    if (avatar)          allowedUpdates.avatar          = avatar;
-    if (companyName)     allowedUpdates.companyName     = companyName.trim();
-    if (gstNumber)       allowedUpdates.gstNumber       = gstNumber.trim();
-    if (farmerId)        allowedUpdates.farmerId        = farmerId.trim();
-    if (businessAddress) allowedUpdates.businessAddress = businessAddress.trim();
-    if (preferences)     allowedUpdates.preferences     = preferences;
-    if (fcmToken)        allowedUpdates.fcmToken        = fcmToken;
+  const updateData = {};
+  const specialUpdates = {};
 
-    const user = await User.findByIdAndUpdate(req.user.id, allowedUpdates, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-
-    logger.info(`✅ Profile updated: ${user._id}`);
-    return res.status(200).json({ success: true, message: 'Profile updated', data: user });
-  } catch (err) {
-    logger.error('updateProfile error:', err);
-    if (err.code === 11000) {
-      return res.status(409).json({ success: false, message: 'Email is already in use' });
-    }
-    return res.status(500).json({ success: false, message: 'Profile update failed' });
+  if (name) updateData.name = name;
+  if (email && email.toLowerCase() !== req.user.email) {
+    updateData.email = email.toLowerCase();
+    updateData.isVerified = false; // Mark unverified until new email is verified
+    logger.info(`User ${req.user._id} changed email. Status set to unverified.`);
   }
-};
 
-// ─── POST /api/v1/auth/google ─────────────────────────────────────────────────
-const googleAuth = async (req, res) => {
-  return res.status(501).json({ success: false, message: 'Google auth not yet available' });
+  if (language) updateData.language = language;
+  if (companyName) updateData.companyName = companyName;
+  if (businessAddress) updateData.businessAddress = businessAddress;
+  if (username) updateData.username = username.trim();
+  if (avatar) updateData.avatar = avatar;
+
+  if (fcmToken) {
+    specialUpdates.$addToSet = { fcmTokens: fcmToken };
+  }
+
+  if (location) {
+    updateData.location = {
+      type: 'Point',
+      coordinates: [parseFloat(location.lng), parseFloat(location.lat)],
+      address: location.address,
+      city: location.city,
+      state: location.state,
+      pincode: location.pincode,
+    };
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { $set: updateData, ...specialUpdates },
+    { new: true, runValidators: true }
+  );
+
+  return sendSuccess(res, {
+    message: updateData.email ? 'Profile updated. Please verify your new email.' : 'Profile updated',
+    data: { user: user.toSafeObject() }
+  });
 };
 
 module.exports = { sendOtp, verifyOtp, register, googleAuth, refreshToken, logout, getProfile, updateProfile };

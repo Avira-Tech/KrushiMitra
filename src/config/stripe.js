@@ -22,9 +22,10 @@ const createPaymentIntent = async ({ amount, currency = 'inr', metadata = {} }) 
   }
 };
 
-const capturePaymentIntent = async (paymentIntentId) => {
+const capturePaymentIntent = async (paymentIntentId, idempotencyKey) => {
   try {
-    return await stripe.paymentIntents.capture(paymentIntentId);
+    const options = idempotencyKey ? { idempotencyKey } : {};
+    return await stripe.paymentIntents.capture(paymentIntentId, options);
   } catch (error) {
     logger.error('Stripe capture error:', error);
     throw error;

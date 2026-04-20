@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 
 /**
  * Generate 6-digit OTP
@@ -65,13 +64,18 @@ const hashString = (str) => {
 /**
  * Sanitize phone number to E.164 format
  */
+// const sanitizePhone = (phone) => {
+//   const cleaned = phone.replace(/\D/g, '');
+//   if (cleaned.startsWith('91') && cleaned.length === 12) return `+${cleaned}`;
+//   if (cleaned.length === 10) return `+91${cleaned}`;
+//   return `+${cleaned}`;
+// };
 const sanitizePhone = (phone) => {
   const cleaned = phone.replace(/\D/g, '');
-  if (cleaned.startsWith('91') && cleaned.length === 12) return `+${cleaned}`;
-  if (cleaned.length === 10) return `+91${cleaned}`;
-  return `+${cleaned}`;
-};
 
+  // Always return last 10 digits (Indian format)
+  return cleaned.slice(-10);
+};
 /**
  * Parse pagination params
  */

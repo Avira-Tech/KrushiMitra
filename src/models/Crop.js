@@ -91,6 +91,10 @@ const cropSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    pickupAvailable: {
+      type: Boolean,
+      default: true,
+    },
     deliveryRadius: {
       type: Number,
       default: 50, // km
@@ -98,6 +102,18 @@ const cropSchema = new mongoose.Schema(
     deliveryCharge: {
       type: Number,
       default: 0,
+    },
+    // Flags
+    isNegotiable: {
+      type: Boolean,
+      default: true,
+    },
+    organic: {
+      type: Boolean,
+      default: false,
+    },
+    availableFrom: {
+      type: Date,
     },
     // Status
     status: {
@@ -147,6 +163,7 @@ cropSchema.index({ pricePerKg: 1 });
 cropSchema.index({ quality: 1 });
 cropSchema.index({ status: 1, isAvailable: 1 });
 cropSchema.index({ createdAt: -1 });
+cropSchema.index({ status: 1, category: 1, pricePerKg: 1, createdAt: -1 });
 cropSchema.index({ category: 1 });
 
 // Pre-save: set availableQuantity

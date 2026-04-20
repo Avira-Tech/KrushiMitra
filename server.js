@@ -1,218 +1,188 @@
 'use strict';
+/**
+ * server.js — KrushiMitra API Server
+ *
+ * Startup order:
+ *  1. Razorpay webhook route (needs raw body — BEFORE express.json)
+ *  2. MongoDB connect
+ *  3. Firebase Admin init
+ *  4. Socket.io with JWT middleware
+ *  5. HTTP server listen
+ *  6. Cron jobs
+ */
+
 require('dotenv').config();
 
 const http = require('http');
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
 const cron = require('node-cron');
 
-const app = require('./app');
-const connectDB = require('./src/config/database');
-const { initFirebase } = require('./src/config/firebase');
+const app         = require('./app');
+const connectDB   = require('./src/config/database');
+const validateEnv = require('./src/config/envValidator');
+const { initFirebase }     = require('./src/config/firebase');
 const { initializeSocket } = require('./src/sockets/socketHandler');
-const MandiService = require('./src/services/mandiService');
+const { redis } = require('./src/config/redis');
+const { startDeliveryWorker } = require('./src/workers/deliveryWorker');
+const socketService = require('./src/utils/socketService');
 const logger = require('./src/utils/logger');
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
+const PORT     = Number(process.env.PORT) || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// ─── Validate PORT ───────────────────────────────────────────────────────────
 if (PORT < 1024 || PORT > 65535) {
-  logger.error(`❌ Invalid PORT: ${PORT}. Must be between 1024-65535`);
+  logger.error(`Invalid PORT: ${PORT}`);
   process.exit(1);
 }
 
-// ─── Create HTTP server ──────────────────────────────────────────────────────
 const server = http.createServer(app);
 
-// ─── Initialize Socket.io ────────────────────────────────────────────────────
+// ─── Socket.io & SocketService ────────────────────────────────────────────────
+// Polling first — upgrades to websocket automatically. This fixes "websocket
+// error" on real Android devices where ws is blocked by carrier/VPN.
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production'
-      ? process.env.CLIENT_URL?.split(',')?.filter(Boolean) || []
-      : ['http://10.185.238.217:8081', 'http://localhost:19006', 'exp://10.140.239.234:8081'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    origin:      NODE_ENV === 'production'
+      ? (process.env.CLIENT_URL ?? '').split(',').filter(Boolean)
+      : true,                            // ← allow ALL in dev
     credentials: true,
+    methods:     ['GET', 'POST'],
   },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  transports:    ['polling', 'websocket'], // polling FIRST for mobile compatibility
+  allowUpgrades: true,
+  pingTimeout:   60_000,
+  pingInterval:  25_000,
   maxHttpBufferSize: 1e6,
-  reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5,
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000,
     skipMiddlewares: true,
   },
 });
 
-// ─── Bootstrap Application ───────────────────────────────────────────────────
+// Horizontal Scaling: Sync socket events across multiple server nodes using Redis
+const pubClient = redis;
+const subClient = pubClient.duplicate();
+io.adapter(createAdapter(pubClient, subClient));
+
+socketService.init(io);
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
 const bootstrap = async () => {
   try {
-    // 1. Connect to MongoDB
-    await connectDB().catch((err) => {
-      throw new Error(`Database connection failed: ${err.message}`);
-    });
-    logger.info('✅ MongoDB connected');
+    validateEnv();
+    await connectDB();
+    logger.info('MongoDB connected');
 
-    // 2. Initialize Firebase Admin
     initFirebase();
-    logger.info('✅ Firebase initialized');
+    logger.info('Firebase initialized');
 
-    // 3. Initialize Socket.io
     initializeSocket(io);
-    logger.info('✅ Socket.io initialized');
+    logger.info('Socket.io initialized');
 
-    // 4. Start server
+    startDeliveryWorker();
+    logger.info('Delivery Worker initialized');
+
     server.listen(PORT, '0.0.0.0', () => {
-      logger.info('─'.repeat(80));
-      logger.info('🌾  KrushiMitra API Server Started Successfully');
-      logger.info('─'.repeat(80));
-      logger.info(`🚀  Environment     : ${NODE_ENV}`);
-      logger.info(`🌐  Port            : ${PORT}`);
-      logger.info(`🔗  Base URL        : http://localhost:${PORT}/api/v1`);
-      logger.info(`💬  Socket.io       : ws://localhost:${PORT}`);
-      logger.info(`❤️   Health Check    : http://localhost:${PORT}/health`);
-      logger.info(`📊  API Docs        : http://localhost:${PORT}/api/v1`);
-      logger.info('─'.repeat(80));
+      logger.info('─'.repeat(60));
+      logger.info(`🌾  KrushiMitra API — ${NODE_ENV.toUpperCase()}`);
+      logger.info(`🚀  http://0.0.0.0:${PORT}/api/v1`);
+      logger.info(`💬  ws://0.0.0.0:${PORT}`);
+      logger.info(`❤️   http://0.0.0.0:${PORT}/health`);
+      logger.info('─'.repeat(60));
     });
 
-    // 5. Schedule cron jobs
     setupCronJobs();
-    logger.info('✅ Cron jobs initialized');
-
-    // 6. Graceful shutdown
     setupGracefulShutdown();
-    logger.info('✅ Graceful shutdown handlers registered');
-
-  } catch (error) {
-    logger.error('❌ Bootstrap failed', {
-      message: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString(),
-    });
+  } catch (err) {
+    logger.error('Bootstrap failed: ' + err.message);
     process.exit(1);
   }
 };
 
-// ─── Cron Jobs Setup ─────────────────────────────────────────────────────────
+// ─── Cron Jobs ────────────────────────────────────────────────────────────────
 const setupCronJobs = () => {
-  // Sync mandi prices every 6 hours
-  cron.schedule('0 */6 * * *', async () => {
+  /**
+   * Helper to ensure a cron job runs on only one instance in a distributed system.
+   * Uses Redis SET with NX (not exists) and EX (expiry) to create a lock.
+   */
+  const withDistributedLock = async (lockKey, task, expirySeconds = 3600) => {
+    const key = `lock:cron:${lockKey}`;
     try {
-      logger.info('⏰ Cron: Syncing mandi prices...');
-      await MandiService.fetchAndCachePrices('Gujarat');
-      await MandiService.fetchAndCachePrices('Maharashtra');
-      logger.info('✅ Cron: Mandi prices synced');
-    } catch (error) {
-      logger.error('❌ Cron job failed - Mandi price sync:', error.message);
+      const lock = await redis.set(key, 'locked', 'NX', 'EX', expirySeconds);
+      if (lock) {
+        logger.info(`[Cron] 🔒 Acquired lock for ${lockKey}`);
+        await task();
+      } else {
+        logger.debug(`[Cron] ⏩ Skipping ${lockKey} (locked by another instance)`);
+      }
+    } catch (err) {
+      logger.error(`[Cron] Lock error for ${lockKey}: ${err.message}`);
     }
+  };
+
+  // Sync mandi prices every 6 hours
+  cron.schedule('0 */6 * * *', () => {
+    withDistributedLock('mandi-price-sync', async () => {
+      const { syncMandiPrices } = require('./src/controllers/mandiController');
+      await Promise.all(['Gujarat', 'Maharashtra', 'Punjab', 'Haryana'].map((s) => syncMandiPrices(s)));
+      logger.info('Mandi prices synced');
+    }, 5 * 60 * 60);
   });
 
-  // Expire old offers every hour
-  cron.schedule('0 * * * *', async () => {
-    try {
-      const Offer = require('./src/models/Offer');
-      if (!Offer) {
-        logger.error('❌ Offer model not loaded');
-        return;
-      }
-
+  // Expire stale offers every hour
+  cron.schedule('0 * * * *', () => {
+    withDistributedLock('offer-expiry', async () => {
+      const Offer  = require('./src/models/Offer');
       const result = await Offer.updateMany(
         { status: 'pending', expiresAt: { $lt: new Date() } },
         { status: 'expired' }
       );
-
-      if (result?.modifiedCount > 0) {
-        logger.info(`⏰ Cron: Expired ${result.modifiedCount} offers`);
-      }
-    } catch (error) {
-      logger.error('❌ Cron job failed - Offer expiration:', error.message);
-    }
+      if (result.modifiedCount) logger.info(`Expired ${result.modifiedCount} offers`);
+    }, 55 * 60);
   });
 
-  // Clean up old notifications every day at midnight
-  cron.schedule('0 0 * * *', async () => {
-    try {
+  // Clean read notifications older than 30 days — midnight
+  cron.schedule('0 0 * * *', () => {
+    withDistributedLock('notification-cleanup', async () => {
       const Notification = require('./src/models/Notification');
-      if (!Notification) {
-        logger.error('❌ Notification model not loaded');
-        return;
-      }
-
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const result = await Notification.deleteMany({
-        isRead: true,
-        createdAt: { $lt: thirtyDaysAgo },
-      });
-
-      if (result?.deletedCount > 0) {
-        logger.info(`⏰ Cron: Cleaned ${result.deletedCount} old notifications`);
-      }
-    } catch (error) {
-      logger.error('❌ Cron job failed - Notification cleanup:', error.message);
-    }
+      const cutoff       = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const result       = await Notification.deleteMany({ isRead: true, createdAt: { $lt: cutoff } });
+      if (result.deletedCount) logger.info(`Cleaned ${result.deletedCount} old notifications`);
+    }, 23 * 60 * 60);
   });
 
-  logger.info('✅ Cron jobs scheduled');
+  logger.info('Cron jobs scheduled');
 };
 
-// ─── Graceful Shutdown Setup ─────────────────────────────────────────────────
+// ─── Graceful Shutdown ────────────────────────────────────────────────────────
 const setupGracefulShutdown = () => {
-  const shutdown = async (signal) => {
-    logger.info(`\n${signal} received. Shutting down gracefully...`);
-
-    // Close HTTP server
+  const shutdown = (signal) => {
+    logger.info(`${signal} received — shutting down gracefully`);
     server.close(async () => {
-      logger.info('🔴 HTTP server closed');
-
-      // Close Socket.io
       io.close();
-      logger.info('🔴 Socket.io closed');
-
-      // Close MongoDB connection
       const mongoose = require('mongoose');
-      try {
-        await mongoose.connection.close();
-        logger.info('🔴 MongoDB connection closed');
-      } catch (error) {
-        logger.error('Error closing MongoDB:', error.message);
-      }
-
-      logger.info('✅ Graceful shutdown complete');
+      await mongoose.connection.close().catch(() => {});
+      logger.info('Server shut down cleanly');
       process.exit(0);
     });
-
-    // Force close after 10 seconds
-    setTimeout(() => {
-      logger.error('❌ Forced shutdown after timeout');
-      process.exit(1);
-    }, 10000);
+    // Force exit if graceful shutdown stalls
+    setTimeout(() => process.exit(1), 10_000);
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 
-  process.on('unhandledRejection', (reason, promise) => {
-    logger.error('❌ Unhandled Rejection:', {
-      reason: reason instanceof Error ? reason.message : reason,
-      promise: promise?.constructor?.name,
-      timestamp: new Date().toISOString(),
-    });
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled Rejection: ' + (reason instanceof Error ? reason.message : String(reason)));
   });
-
-  process.on('uncaughtException', (error) => {
-    logger.error('❌ Uncaught Exception:', {
-      message: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString(),
-    });
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception: ' + err.message);
     process.exit(1);
   });
 };
 
-// ─── Start Application ───────────────────────────────────────────────────────
+// Start bootstrapping directly (removed cluster mode)
 bootstrap();
 
 module.exports = { server, io };

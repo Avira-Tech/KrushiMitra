@@ -1,185 +1,3 @@
-// const mongoose = require('mongoose');
-// const { generateContractId } = require('../utils/helpers'); // FIXED PATH
-// const logger = require('../utils/logger');
-
-// // FIXED: Proper retry tracking with attempt parameter
-// const executeTransaction = async (
-//   operation,
-//   options = { retries: 3, timeout: 30000 },
-//   attempt = 0
-// ) => {
-//   const session = await mongoose.startSession();
-//   session.startTransaction();
-
-//   try {
-//     const result = await Promise.race([
-//       operation(session),
-//       new Promise((_, reject) =>
-//         setTimeout(
-//           () => reject(new Error('Transaction timeout')),
-//           options.timeout
-//         )
-//       ),
-//     ]);
-
-//     await session.commitTransaction();
-//     return result;
-//   } catch (error) {
-//     await session.abortTransaction();
-
-//     // FIXED: Compare attempt < retries instead of resetting retries
-//     if (attempt < options.retries && shouldRetry(error)) {
-//       logger.warn(
-//         `Transaction failed (attempt ${attempt + 1}/${options.retries}), retrying...`,
-//         error.message
-//       );
-//       await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1))); // Exponential backoff
-//       return executeTransaction(operation, options, attempt + 1); // FIXED: Pass attempt + 1
-//     }
-
-//     throw error;
-//   } finally {
-//     await session.endSession();
-//   }
-// };
-
-// const shouldRetry = (error) => {
-//   const retryableErrors = [
-//     'EALREADY',
-//     'ETIMEDOUT',
-//     'EHOSTUNREACH',
-//     'WriteConflict',
-//     'NotMaster',
-//   ];
-//   return retryableErrors.some((e) => error.message.includes(e));
-// };
-
-// // FIXED: Atomic crop quantity check + decrement
-// const transactionOfferAcceptance = async (offerId) => {
-//   const Offer = mongoose.model('Offer');
-//   const Crop = mongoose.model('Crop');
-//   const Contract = mongoose.model('Contract');
-
-//   return executeTransaction(async (session) => {
-//     // Get offer with validation
-//     const offer = await Offer.findById(offerId)
-//       .populate('crop')
-//       .populate('farmer')
-//       .populate('buyer')
-//       .session(session);
-
-//     if (!offer) throw new Error('Offer not found');
-//     if (offer.status !== 'pending') throw new Error('Offer not in pending status');
-
-//     // FIXED: Atomic conditional update - prevents overselling
-//     const updatedCrop = await Crop.findOneAndUpdate(
-//       {
-//         _id: offer.crop._id,
-//         availableQuantity: { $gte: offer.quantity }, // Conditional check
-//       },
-//       {
-//         $inc: { availableQuantity: -offer.quantity },
-//       },
-//       { session, new: true }
-//     );
-
-//     if (!updatedCrop) {
-//       throw new Error('Insufficient crop quantity - concurrent purchase detected');
-//     }
-
-//     // Generate contract
-//     const contractId = generateContractId();
-//     const contract = await Contract.create(
-//       [
-//         {
-//           contractId,
-//           offer: offer._id,
-//           farmer: offer.farmer._id,
-//           buyer: offer.buyer._id,
-//           crop: offer.crop._id,
-//           quantity: offer.quantity,
-//           totalAmount: offer.totalAmount,
-//           status: 'pending',
-//           payment: {
-//             status: 'pending',
-//             amount: offer.totalAmount,
-//           },
-//           createdAt: new Date(),
-//         },
-//       ],
-//       { session }
-//     );
-
-//     // Update offer status
-//     await Offer.findByIdAndUpdate(
-//       offerId,
-//       { status: 'accepted', acceptedAt: new Date() },
-//       { session }
-//     );
-
-//     return contract[0];
-//   });
-// };
-
-// // FIXED: Proper payment field mapping
-// const transactionPaymentProcessing = async (contractId, paymentData) => {
-//   const Contract = mongoose.model('Contract');
-//   const Payment = mongoose.model('Payment');
-
-//   return executeTransaction(async (session) => {
-//     const contract = await Contract.findById(contractId).session(session);
-
-//     if (!contract) throw new Error('Contract not found');
-//     if (contract.payment.status !== 'pending') {
-//       throw new Error('Payment already processed');
-//     }
-
-//     // FIXED: Validate payment data structure
-//     if (!paymentData.stripe?.paymentIntentId) {
-//       throw new Error('Invalid payment intent');
-//     }
-
-//     // Create payment record
-//     const payment = await Payment.create(
-//       [
-//         {
-//           contract: contractId,
-//           payer: contract.buyer,
-//           payee: contract.farmer,
-//           amount: contract.totalAmount,
-//           status: 'authorized',
-//           type: 'stripe',
-//           stripe: {
-//             paymentIntentId: paymentData.stripe.paymentIntentId,
-//             chargeId: paymentData.stripe.chargeId || null,
-//           },
-//           metadata: {
-//             contractId,
-//           },
-//         },
-//       ],
-//       { session }
-//     );
-
-//     // Update contract payment status
-//     await Contract.findByIdAndUpdate(
-//       contractId,
-//       {
-//         'payment.status': 'authorized',
-//         'payment.transactionId': payment[0]._id,
-//       },
-//       { session }
-//     );
-
-//     return payment[0];
-//   });
-// };
-
-// module.exports = {
-//   executeTransaction,
-//   transactionOfferAcceptance,
-//   transactionPaymentProcessing,
-// };
 'use strict';
 /**
  * transactionService.js
@@ -328,53 +146,167 @@ const transactionOfferAcceptance = (offerId) =>
     return contract;
   });
 
-// ─── Payment processing transaction ───────────────────────────────────────────
 /**
- * Atomically creates a Payment record and updates Contract payment status.
- * Called after Stripe paymentIntent is confirmed server-side via webhook.
+ * Atomically creates/updates a Payment record and updates Contract payment status.
+ * Called after Stripe payment is authorized (requires_capture) or succeeded.
  */
-const transactionPaymentProcessing = (contractId, paymentData) =>
+const transactionPaymentVerification = (contractId, paymentData) =>
+  executeTransaction(async (session) => {
+    const Contract = mongoose.model('Contract');
+    const Payment  = mongoose.model('Payment');
+    const { redis } = require('../config/redis');
+
+    // Distributed Lock Prefix
+    const lockKey = `lock:payment:${contractId}`;
+    const acquired = await redis.set(lockKey, 'locked', 'PX', 10000, 'NX');
+
+    if (!acquired) {
+      logger.warn(`Payment lock contention for contract ${contractId}. Retrying...`);
+      throw new Error('WriteConflict'); // Trigger retry logic
+    }
+
+    try {
+      const contract = await Contract.findById(contractId).session(session);
+      if (!contract) throw new Error('Contract not found');
+
+      // If already in escrow/authorized, just return (idempotency)
+      const successStatuses = ['in_escrow', 'requires_capture', 'released'];
+      if (successStatuses.includes(contract.payment.status)) {
+        return { contract, alreadyProcessed: true };
+      }
+
+      const { intentId, amount, status, email } = paymentData;
+
+      // 1. Update/Create Payment record
+      const payment = await Payment.findOneAndUpdate(
+        { 'stripe.paymentIntentId': intentId },
+        {
+          status: status === 'requires_capture' ? 'in_escrow' : 'paid',
+          'stripe.status': status,
+          'stripe.amountReceived': amount,
+          processedAt: new Date(),
+        },
+        { session, new: true, upsert: true }
+      );
+
+      // 2. Update Contract status
+      const updatedContract = await Contract.findByIdAndUpdate(
+        contractId,
+        {
+          status: 'confirmed',
+          'payment.status': status === 'requires_capture' ? 'in_escrow' : 'authorized',
+          'payment.stripeIntentId': intentId,
+          'payment.paidAt': new Date(),
+        },
+        { session, new: true }
+      );
+
+      return { contract: updatedContract, payment };
+    } finally {
+      await redis.del(lockKey);
+    }
+  });
+
+/**
+ * Atomically releases payment from escrow to the farmer.
+ * Marks contract as completed.
+ */
+const transactionPaymentRelease = (contractId) =>
   executeTransaction(async (session) => {
     const Contract = mongoose.model('Contract');
     const Payment  = mongoose.model('Payment');
 
     const contract = await Contract.findById(contractId).session(session);
-    if (!contract)                            throw new Error('Contract not found');
-    if (contract.payment.status !== 'pending') throw new Error('Payment already processed');
+    if (!contract) throw new Error('Contract not found');
 
-    if (!paymentData?.stripe?.paymentIntentId) throw new Error('Invalid payment data: missing paymentIntentId');
+    const allowedToRelease = ['in_escrow', 'requires_capture', 'authorized'];
+    if (!allowedToRelease.includes(contract.payment.status)) {
+      throw new Error(`Cannot release payment. Current status: ${contract.payment.status}`);
+    }
 
+    // 1. Update Payment record
+    const payment = await Payment.findOneAndUpdate(
+      { contract: contractId, status: { $in: ['in_escrow', 'paid', 'captured'] } },
+      {
+        status: 'released',
+        releasedAt: new Date(),
+      },
+      { session, new: true }
+    );
+
+    // 2. Update Contract status
+    const updatedContract = await Contract.findByIdAndUpdate(
+      contractId,
+      {
+        status: 'completed',
+        'payment.status': 'released',
+        'payment.releasedAt': new Date(),
+        'delivery.status': 'delivered',
+        'delivery.deliveredAt': new Date(),
+      },
+      { session, new: true }
+    );
+
+    return { contract: updatedContract, payment };
+  });
+
+/**
+ * Atomically confirms Cash on Delivery payment.
+ * Creates a Payment record and marks contract as completed.
+ */
+const transactionCodPayment = (contractId, paymentData) =>
+  executeTransaction(async (session) => {
+    const Contract = mongoose.model('Contract');
+    const Payment  = mongoose.model('Payment');
+
+    const contract = await Contract.findById(contractId).session(session);
+    if (!contract) throw new Error('Contract not found');
+
+    // Idempotency: skip if already completed
+    if (contract.status === 'completed') {
+      return { contract, alreadyProcessed: true };
+    }
+
+    // 1. Create Payment record for COD
     const [payment] = await Payment.create(
       [
         {
-          contract:  contractId,
-          payer:     contract.buyer,
-          payee:     contract.farmer,
-          amount:    contract.terms.totalAmount,
-          status:    'authorized',
-          type:      'escrow_deposit',
-          stripe:    {
-            paymentIntentId: paymentData.stripe.paymentIntentId,
-            chargeId:        paymentData.stripe.chargeId ?? null,
-          },
-          description: `Escrow — Contract ${contract.contractId}`,
+          contract: contractId,
+          payer: contract.buyer,
+          payee: contract.farmer,
+          amount: contract.terms.totalAmount,
+          status: 'released', // COD is directly released to farmer upon collection
+          type: 'cod',
+          processedAt: new Date(),
+          releasedAt: new Date(),
+          notes: paymentData.notes || 'Cash on Delivery confirmed',
         },
       ],
       { session }
     );
 
-    await Contract.findByIdAndUpdate(
+    // 2. Update Contract status
+    const updatedContract = await Contract.findByIdAndUpdate(
       contractId,
       {
-        'payment.status':                'authorized',
-        'payment.stripePaymentIntentId': paymentData.stripe.paymentIntentId,
-        'payment.paidAt':                new Date(),
+        status: 'completed',
+        'payment.status': 'released',
+        'payment.method': 'cod',
+        'payment.paidAt': new Date(),
+        'payment.releasedAt': new Date(),
+        'delivery.status': 'delivered',
+        'delivery.deliveredAt': new Date(),
       },
-      { session }
+      { session, new: true }
     );
 
-    logger.info(`✅ Payment transaction: ${payment._id} for contract ${contract.contractId}`);
-    return payment;
+    return { contract: updatedContract, payment };
   });
 
-module.exports = { executeTransaction, transactionOfferAcceptance, transactionPaymentProcessing };
+module.exports = {
+  executeTransaction,
+  transactionOfferAcceptance,
+  transactionPaymentVerification,
+  transactionPaymentRelease,
+  transactionCodPayment
+};

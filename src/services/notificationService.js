@@ -1,5 +1,6 @@
 const Notification = require('../models/Notification');
 const { sendPushNotification, sendMulticastNotification } = require('../config/firebase');
+const socketService = require('../utils/socketService');
 const logger = require('../utils/logger');
 
 class NotificationService {
@@ -21,31 +22,32 @@ class NotificationService {
       });
 
       // Emit via socket if available
-      if (global.io) {
-        global.io.to(`user:${recipientId}`).emit('notification', {
-          id: notification._id,
-          type,
-          title,
-          body,
-          data,
-          createdAt: notification.createdAt,
-        });
-      }
+      socketService.emitToUser(recipientId, 'notification', {
+        id: notification._id,
+        type,
+        title,
+        body,
+        data,
+        createdAt: notification.createdAt,
+      });
 
       // Send push notification
       const User = require('../models/User');
-      const recipient = await User.findById(recipientId).select('fcmToken');
-      if (recipient?.fcmToken) {
-        const pushResult = await sendPushNotification({
-          token: recipient.fcmToken,
+      const recipient = await User.findById(recipientId).select('+fcmTokens');
+      if (recipient?.fcmTokens?.length) {
+        // Send to all registered devices
+        const pushResult = await sendMulticastNotification({
+          tokens: recipient.fcmTokens,
           title,
           body,
           data: { ...data, notificationId: notification._id.toString(), type },
         });
+
+        const successCount = pushResult?.successCount || 0;
         await Notification.findByIdAndUpdate(notification._id, {
-          isPushSent: pushResult.success,
+          isPushSent: successCount > 0,
           pushSentAt: new Date(),
-          ...(pushResult.error && { pushError: pushResult.error }),
+          metadata: { ...notification.metadata, fcmResponses: pushResult?.responses }
         });
       }
 
