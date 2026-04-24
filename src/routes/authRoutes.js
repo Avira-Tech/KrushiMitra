@@ -10,6 +10,7 @@ const {
 const {
   sendOtp, verifyOtp, register, googleAuth,
   refreshToken, logout, getProfile, updateProfile,
+  getBankDetails, updateBankDetails,
 } = require('../controllers/authController');
 
 // Public routes
@@ -24,5 +25,9 @@ router.use(protect);
 router.post('/logout', logout);
 router.get('/profile', getProfile);
 router.put('/profile', validate(updateProfileSchema), updateProfile);
+
+// Bank details
+router.get('/bank-details', getBankDetails);
+router.put('/bank-details', updateBankDetails);
 
 module.exports = router;

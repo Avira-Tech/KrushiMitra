@@ -11,15 +11,15 @@
  *  - Socket stored in useRef on frontend — cleanup always disconnects
  */
 
-const jwt         = require('jsonwebtoken');
-const logger      = require('../utils/logger');
+const jwt = require('jsonwebtoken');
+const logger = require('../utils/logger');
 
 // Lazy-loaded to avoid circular imports
 let Message, Conversation, User;
 const loadModels = () => {
-  if (!Message)      Message      = require('../models/Message');
+  if (!Message) Message = require('../models/Message');
   if (!Conversation) Conversation = require('../models/Conversation');
-  if (!User)         User         = require('../models/User');
+  if (!User) User = require('../models/User');
 };
 
 // userId → Set<socketId> — MOVED TO REDIS for horizontal scaling
@@ -37,17 +37,17 @@ const initializeSocket = (io) => {
       if (!token) return next(new Error('Authentication token required'));
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-        issuer:   'krushimitra-api',
+        issuer: 'krushimitra-api',
         audience: 'krushimitra-app',
       });
 
       const user = await User.findById(decoded.id).select('name role isBanned isActive');
-      if (!user)          return next(new Error('User not found'));
-      if (user.isBanned)  return next(new Error('Account suspended'));
+      if (!user) return next(new Error('User not found'));
+      if (user.isBanned) return next(new Error('Account suspended'));
       if (!user.isActive) return next(new Error('Account inactive'));
 
       // Attach verified identity to socket
-      socket.userId   = decoded.id.toString();
+      socket.userId = decoded.id.toString();
       socket.userRole = user.role;
       socket.userName = user.name;
 
@@ -62,13 +62,48 @@ const initializeSocket = (io) => {
     const userId = socket.userId;
 
     // Track connections in Redis (atomic increment/set)
-    redis.hincrby(PRESENCE_KEY, userId, 1).catch(logger.error);
+    (async () => {
+      try {
+        const count = await redis.hincrby(PRESENCE_KEY, userId, 1);
+        if (count === 1) {
+          // Broadcast online only on the first connection
+          io.to(`role:farmer`).to(`role:buyer`).emit('presence:online', { userId, timestamp: new Date() });
+        }
+      } catch (err) {
+        logger.error('Error tracking presence: ' + err.message);
+      }
+    })();
 
     // Auto-join personal room for targeted notifications
     socket.join(`user:${userId}`);
     socket.join(`role:${socket.userRole}`);
 
     logger.info(`Socket connected: ${userId} (${socket.userRole}) — ${socket.id}`);
+
+    // Mark undelivered messages for this user as delivered
+    (async () => {
+      try {
+        const undelivered = await Message.find({ recipient: userId, isDelivered: false });
+        if (undelivered.length > 0) {
+          const now = new Date();
+          await Message.updateMany(
+            { recipient: userId, isDelivered: false },
+            { $set: { isDelivered: true, deliveredAt: now } }
+          );
+          // Notify senders in each conversation
+          const convIds = [...new Set(undelivered.map(m => m.conversationId.toString()))];
+          convIds.forEach(cid => {
+            io.to(`conversation:${cid}`).emit('messages:delivered', { 
+              conversationId: cid, 
+              recipientId: userId,
+              deliveredAt: now 
+            });
+          });
+        }
+      } catch (err) {
+        logger.error('Error marking messages as delivered on connect: ' + err.message);
+      }
+    })();
 
     // ─── Chat Events ──────────────────────────────────────────────────────────
 
@@ -102,11 +137,11 @@ const initializeSocket = (io) => {
           conv = await Conversation.findById(conversationId);
         } else if (recipientId) {
           // Deterministic sorting ensures [A,B] and [B,A] both map to [A,B] 
-          const participants = [userId, recipientId].sort();
+          const participants = [userId.toString(), recipientId.toString()].sort();
           conv = await Conversation.findOneAndUpdate(
             { participants: { $size: 2, $all: participants } },
-            { 
-              $setOnInsert: { participants, lastMessageAt: new Date() } 
+            {
+              $setOnInsert: { participants, lastMessageAt: new Date() }
             },
             { upsert: true, new: true, setDefaultsOnInsert: true }
           );
@@ -118,31 +153,36 @@ const initializeSocket = (io) => {
         const isParticipant = conv.participants.some((p) => p.toString() === userId);
         if (!isParticipant) return socket.emit('error', { message: 'Unauthorized' });
 
+        const recipientOnline = await isUserOnline(recipientId);
+
         const message = await Message.create({
           conversationId: conv._id,
-          sender:         userId,
-          recipient:      recipientId,
-          content:        content.trim(),
+          sender: userId,
+          recipient: recipientId,
+          content: content.trim(),
           messageType,
+          isDelivered: recipientOnline,
+          deliveredAt: recipientOnline ? new Date() : null,
         });
 
         await message.populate('sender', 'name avatar');
 
         // Update conversation's last message
         await Conversation.findByIdAndUpdate(conv._id, {
-          lastMessage:   message._id,
+          lastMessage: message._id,
           lastMessageAt: new Date(),
         });
 
         const payload = {
-          _id:            message._id,
+          _id: message._id,
           conversationId: conv._id,
-          sender:         message.sender,
-          recipient:      recipientId,
-          content:        message.content,
+          sender: message.sender,
+          recipient: recipientId,
+          content: message.content,
           messageType,
-          createdAt:      message.createdAt,
-          isRead:         false,
+          createdAt: message.createdAt,
+          isRead: false,
+          isDelivered: message.isDelivered,
         };
 
         // Emit to everyone in the conversation room
@@ -159,7 +199,7 @@ const initializeSocket = (io) => {
       try {
         const message = await Message.findByIdAndUpdate(
           messageId,
-          { isRead: true, readAt: new Date() },
+          { isRead: true, readAt: new Date(), isDelivered: true },
           { new: true }
         );
         if (message) {
@@ -167,6 +207,21 @@ const initializeSocket = (io) => {
         }
       } catch (err) {
         logger.error('message:read error: ' + err.message);
+      }
+    });
+
+    socket.on('message:delivered', async ({ messageId, conversationId }) => {
+      try {
+        const message = await Message.findByIdAndUpdate(
+          messageId,
+          { isDelivered: true, deliveredAt: new Date() },
+          { new: true }
+        );
+        if (message) {
+          io.to(`conversation:${conversationId}`).emit('message:delivered', { messageId, deliveredAt: message.deliveredAt });
+        }
+      } catch (err) {
+        logger.error('message:delivered error: ' + err.message);
       }
     });
 
@@ -178,6 +233,15 @@ const initializeSocket = (io) => {
 
     socket.on('typing:stop', ({ conversationId }) => {
       socket.to(`conversation:${conversationId}`).emit('typing:inactive', { userId });
+    });
+
+    socket.on('presence:get', async ({ userId: targetUserId }) => {
+      try {
+        const online = await isUserOnline(targetUserId);
+        socket.emit('presence:status', { userId: targetUserId, status: online ? 'online' : 'offline' });
+      } catch (err) {
+        logger.error('presence:get error: ' + err.message);
+      }
     });
 
     // ─── Disconnect ───────────────────────────────────────────────────────────
@@ -202,14 +266,14 @@ const initializeSocket = (io) => {
   logger.info('Socket.io initialized with JWT middleware');
 };
 
-const isUserOnline  = async (userId) => {
+const isUserOnline = async (userId) => {
   const count = await redis.hget(PRESENCE_KEY, userId);
   return parseInt(count) > 0;
 };
 
 // Note: getSocketIds can no longer be local-only. For scaling, 
 // use io.to(`user:${userId}`).emit() which works across nodes.
-const getSocketIds  = async (userId) => {
+const getSocketIds = async (userId) => {
   const sockets = await io.in(`user:${userId}`).fetchSockets();
   return sockets.map(s => s.id);
 };

@@ -65,11 +65,11 @@ const contractSchema = new mongoose.Schema(
           "refunded",
           "failed",
         ],
-        default: "pending",
+        default: "awaiting_buyer",
       },
       method: {
         type: String,
-        enum: ['advance', 'on_delivery', 'stripe', 'upi', 'bank_transfer', 'cod', 'razorpay'],
+        enum: ['advance', 'stripe', 'upi', 'bank_transfer', 'cod', 'razorpay'],
         default: 'stripe',
       },
       stripeIntentId: { type: String, index: true },

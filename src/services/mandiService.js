@@ -35,8 +35,10 @@ class MandiService {
         update: {
           $set: {
             commodity: record.commodity,
+            crop: record.commodity, // Alias for model
             variety: record.variety,
             market: record.market,
+            mandi: record.market, // Alias for model
             state: record.state,
             district: record.district,
             // Ensure numbers are parsed correctly from strings

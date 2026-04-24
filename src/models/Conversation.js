@@ -14,25 +14,9 @@ const conversationSchema = new mongoose.Schema(
       ref: 'Message',
       default: null,
     },
-    lastMessageAt: Date,
-    offer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Offer',
-      default: null,
-    },
-    crop: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Crop',
-      default: null,
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    unreadCount: {
-      type: Map,
-      of: Number,
-      default: new Map(),
+    lastMessageAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   {
@@ -40,12 +24,12 @@ const conversationSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
-// Unique index on participants list ensures only ONE conversation per pair of users.
-// IMPORTANT: participants must be sorted before saving to make this effective.
-conversationSchema.index({ participants: 1 }, { unique: true });
+// Indexes for performance
+conversationSchema.index({ participants: 1 });
 conversationSchema.index({ lastMessageAt: -1 });
-conversationSchema.index({ createdAt: -1 });
+
+// Ensure participants is treated as a unique set for 1-on-1 chats if needed, 
+// but typically we handle this in the controller/socket with deterministic sorting.
 
 // ✅ FIX: Prevent model overwrite
 module.exports = mongoose.models.Conversation || mongoose.model('Conversation', conversationSchema);

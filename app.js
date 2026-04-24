@@ -30,6 +30,7 @@ const {
   errorLoggingMiddleware,
   slowRequestMiddleware,
 } = require('./src/middlewares/requestLogging');
+const { checkMaintenance } = require('./src/middlewares/auth');
 
 // ─── Route imports ────────────────────────────────────────────────────────────
 const authRoutes = require('./src/routes/authRoutes');
@@ -43,6 +44,8 @@ const notificationRoutes = require('./src/routes/notificationRoutes');
 const weatherRoutes = require('./src/routes/weatherRoutes');
 const mandiRoutes = require('./src/routes/mandiRoutes');
 const reviewRoutes = require('./src/routes/reviewRoutes');
+const cmsRoutes = require('./src/routes/cmsRoutes');
+const payoutRoutes = require('./src/routes/payoutRoutes');
 const paymentPageRoute = require('./src/routes/paymentPage');
 
 const app = express();
@@ -161,10 +164,16 @@ app.use(`${API_PREFIX}/contracts`, contractRoutes);
 app.use(`${API_PREFIX}/payments`, paymentRoutes);
 app.use(`${API_PREFIX}/chats`, chatRoutes);
 app.use(`${API_PREFIX}/admin`, adminRoutes);
+
+// Maintenance Mode Protection (Blocks non-admins if active)
+app.use(checkMaintenance);
+
 app.use(`${API_PREFIX}/notifications`, notificationRoutes);
 app.use(`${API_PREFIX}/weather`, weatherRoutes);
 app.use(`${API_PREFIX}/mandi`, mandiRoutes);
 app.use(`${API_PREFIX}/reviews`, reviewRoutes);
+app.use(`${API_PREFIX}/cms`, cmsRoutes);
+app.use(`${API_PREFIX}/payouts`, payoutRoutes);
 app.use(`${API_PREFIX}/`, paymentPageRoute);
 
 // ─── API index ────────────────────────────────────────────────────────────────

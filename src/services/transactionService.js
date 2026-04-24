@@ -72,7 +72,7 @@ const executeTransaction = async (operation, options = {}, attempt = 0) => {
  *
  * Called from offerController.acceptOffer().
  */
-const transactionOfferAcceptance = (offerId) =>
+const transactionOfferAcceptance = (offerId, userId) =>
   executeTransaction(async (session) => {
     const Offer    = mongoose.model('Offer');
     const Crop     = mongoose.model('Crop');
@@ -86,8 +86,35 @@ const transactionOfferAcceptance = (offerId) =>
       .session(session);
 
     if (!offer)                        throw new Error('Offer not found');
-    if (offer.status !== 'pending')    throw new Error(`Offer is already ${offer.status}`);
+    if (!['pending', 'countered'].includes(offer.status)) {
+        throw new Error(`Offer is already ${offer.status}`);
+    }
     if (new Date() > offer.expiresAt)  throw new Error('Offer has expired');
+
+    // ─── Authorization Check ──────────────────────────────────────────────────
+    // Determine who is allowed to accept based on current status
+    let isAuthorized = false;
+    if (offer.status === 'pending') {
+        // Pending offers are sent by buyers to farmers
+        isAuthorized = offer.farmer._id.toString() === userId.toString();
+    } else if (offer.status === 'countered') {
+        // For countered, only the party who DID NOT send the counter can accept
+        if (offer.counterOffer?.by === 'farmer') {
+            isAuthorized = offer.buyer._id.toString() === userId.toString();
+        } else {
+            isAuthorized = offer.farmer._id.toString() === userId.toString();
+        }
+    }
+
+    if (!isAuthorized) {
+        throw new Error('Not authorized to accept this offer in its current state');
+    }
+
+    // ─── Determine Final Pricing ──────────────────────────────────────────────
+    const finalPricePerKg = offer.status === 'countered' && offer.counterOffer?.price 
+        ? offer.counterOffer.price 
+        : offer.pricePerKg;
+    const finalTotalAmount = parseFloat((offer.quantity * finalPricePerKg).toFixed(2));
 
     // 2. Atomically decrement stock — the $gte condition prevents overselling
     const updatedCrop = await Crop.findOneAndUpdate(
@@ -102,7 +129,7 @@ const transactionOfferAcceptance = (offerId) =>
 
     // 3. Create contract
     const contractId = generateContractId();
-    const platformFee = parseFloat((offer.totalAmount * 0.02).toFixed(2));
+    const platformFee = parseFloat((finalTotalAmount * 0.02).toFixed(2));
 
     const [contract] = await Contract.create(
       [
@@ -115,10 +142,10 @@ const transactionOfferAcceptance = (offerId) =>
           terms: {
             cropName:     offer.crop.name,
             quantity:     offer.quantity,
-            pricePerKg:   offer.pricePerKg,
-            totalAmount:  offer.totalAmount,
+            pricePerKg:   finalPricePerKg,
+            totalAmount:  finalTotalAmount,
             platformFee,
-            netAmount:    parseFloat((offer.totalAmount - platformFee).toFixed(2)),
+            netAmount:    parseFloat((finalTotalAmount - platformFee).toFixed(2)),
             deliveryDate: offer.deliveryDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             paymentTerms: offer.paymentTerms ?? 'KrushiMitra Secure Escrow',
             // Flatten farmer/buyer names so frontend Contract interface works
@@ -126,7 +153,7 @@ const transactionOfferAcceptance = (offerId) =>
             buyerName:    offer.buyer.name,
           },
           status:          'active',
-          payment:         { status: 'pending' },
+          payment:         { status: 'awaiting_buyer' },
           delivery:        { status: 'pending' },
           dispute:         { isDisputed: false },
           createdAt:       new Date(),

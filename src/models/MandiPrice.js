@@ -2,20 +2,37 @@ const mongoose = require('mongoose');
 
 const mandiPriceSchema = new mongoose.Schema(
   {
+    commodity: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    // Keep 'crop' as an alias or duplicate for legacy queries
     crop: {
       type: String,
       required: true,
       index: true,
     },
+    market: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    // Keep 'mandi' as an alias
     mandi: {
       type: String,
       required: true,
     },
+    variety: {
+      type: String,
+    },
     state: {
       type: String,
       required: true,
-      enum: ['Gujarat', 'Maharashtra', 'Punjab', 'Haryana', 'Karnataka'],
       index: true,
+    },
+    district: {
+      type: String,
     },
     minPrice: {
       type: Number,
@@ -35,22 +52,16 @@ const mandiPriceSchema = new mongoose.Schema(
     priceDate: {
       type: Date,
       required: true,
-      default: () => {
-        const date = new Date();
-        date.setHours(0, 0, 0, 0);
-        return date;
-      },
       index: true,
     },
     unit: {
       type: String,
       default: 'per quintal',
     },
-    supply: {
+    source: {
       type: String,
-      enum: ['Good', 'Fair', 'Poor'],
+      default: 'AGMARKNET',
     },
-    tradingQuantity: Number,
     currency: {
       type: String,
       default: 'INR',
@@ -61,9 +72,10 @@ const mandiPriceSchema = new mongoose.Schema(
   }
 );
 
-// Composite indexes
-mandiPriceSchema.index({ crop: 1, priceDate: -1 });
-mandiPriceSchema.index({ mandi: 1, priceDate: -1 });
+// Composite indexes for performance
+mandiPriceSchema.index({ commodity: 1, priceDate: -1 });
+mandiPriceSchema.index({ market: 1, priceDate: -1 });
 mandiPriceSchema.index({ state: 1, priceDate: -1 });
+mandiPriceSchema.index({ commodity: 1, market: 1, priceDate: -1 });
 
 module.exports = mongoose.model('MandiPrice', mandiPriceSchema);

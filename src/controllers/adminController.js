@@ -3,7 +3,25 @@ const Crop = require('../models/Crop');
 const Contract = require('../models/Contract');
 const Payment = require('../models/Payment');
 const Offer = require('../models/Offer');
+const AuditLog = require('../models/AuditLog');
 const NotificationService = require('../services/notificationService');
+
+// Helper to log admin actions
+const logAdminAction = async (req, module, action, targetId = null, details = {}) => {
+  try {
+    await AuditLog.create({
+      admin: req.user._id,
+      module,
+      action,
+      targetId,
+      details,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+  } catch (err) {
+    logger.error('Failed to log admin action:', err);
+  }
+};
 const { parsePagination } = require('../utils/helpers');
 const { sendSuccess, sendNotFound, sendError, sendPaginated } = require('../utils/apiResponse');
 const logger = require('../utils/logger');
@@ -82,6 +100,7 @@ const verifyUser = async (req, res) => {
 
   await NotificationService.notifyAccountVerified(userId, isApproved, note);
 
+  await logAdminAction(req, 'Users', isApproved ? 'APPROVE_USER' : 'REJECT_USER', userId, { role: user.role, note });
   logger.info(`User ${userId} ${action}d by admin ${req.user._id}`);
 
   return sendSuccess(res, {
@@ -93,10 +112,11 @@ const verifyUser = async (req, res) => {
 // ─── GET ALL USERS ──────────────────────────────────────────────────────────────────────────
 const getAllUsers = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
-  const { role, isVerified, search } = req.query;
+  const { role, isVerified, search, verificationStatus } = req.query;
 
   const query = {};
   if (role) query.role = role;
+  if (verificationStatus) query.verificationStatus = verificationStatus;
   if (isVerified !== undefined) query.isVerified = isVerified === 'true';
   if (search) query.$or = [{ name: new RegExp(search, 'i') }, { phone: new RegExp(search, 'i') }];
 
@@ -120,8 +140,11 @@ const banUser = async (req, res) => {
   await User.findByIdAndUpdate(userId, {
     isBanned: action === 'ban',
     banReason: action === 'ban' ? reason : undefined,
+    bannedAt: action === 'ban' ? new Date() : undefined,
+    bannedBy: action === 'ban' ? req.user._id : undefined,
   });
 
+  await logAdminAction(req, 'Users', action === 'ban' ? 'BAN_USER' : 'UNBAN_USER', userId, { reason });
   return sendSuccess(res, { message: `User ${action === 'ban' ? 'banned' : 'unbanned'} successfully` });
 };
 
@@ -162,6 +185,7 @@ const resolveDispute = async (req, res) => {
 
   logger.info(`Dispute resolved for contract ${contract.contractId} by admin ${req.user._id}`);
 
+  await logAdminAction(req, 'Contracts', 'RESOLVE_DISPUTE', contractId, { action, resolution });
   return sendSuccess(res, { message: 'Dispute resolved successfully', data: { resolution, action } });
 };
 
@@ -184,4 +208,103 @@ const sendBroadcast = async (req, res) => {
   });
 };
 
-module.exports = { getDashboard, getPendingVerifications, verifyUser, getAllUsers, banUser, resolveDispute, sendBroadcast };
+// ─── GET RECENT ACTIVITY ──────────────────────────────────────────────────────────────────
+const getActivity = async (req, res) => {
+  const [users, crops, contracts, payments, logs] = await Promise.all([
+    User.find().sort({ createdAt: -1 }).limit(5).select('name role createdAt'),
+    Crop.find().sort({ createdAt: -1 }).limit(5).select('name farmer quantity createdAt'),
+    Contract.find().sort({ createdAt: -1 }).limit(5).select('contractId terms.cropName status createdAt'),
+    Payment.find().sort({ createdAt: -1 }).limit(5).select('amount status createdAt'),
+    AuditLog.find().sort({ createdAt: -1 }).limit(10).populate('admin', 'name'),
+  ]);
+
+  const activity = [
+    ...users.map((u) => ({ type: 'user', icon: 'person-add', text: `New ${u.role}: ${u.name}`, time: u.createdAt, color: '#4CAF50' })),
+    ...crops.map((c) => ({ type: 'crop', icon: 'leaf', text: `Listing: ${c.name} (${c.quantity}kg)`, time: c.createdAt, color: '#2196F3' })),
+    ...contracts.map((c) => ({ type: 'contract', icon: 'document-text', text: `Contract ${c.status}: #${c.contractId}`, time: c.createdAt, color: '#FF9800' })),
+    ...payments.map((p) => ({ type: 'payment', icon: 'cash', text: `Payment ${p.status}: ₹${p.amount}`, time: p.createdAt, color: '#FFD54F' })),
+    ...logs.map((l) => ({ type: 'admin', icon: 'flash', text: `Admin ${l.admin?.name || 'Admin'} ${l.action.replace(/_/g, ' ')}`, time: l.createdAt, color: '#7B1FA2' })),
+  ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 15);
+
+  return sendSuccess(res, { data: activity });
+};
+
+// ─── GET ALL DISPUTES ─────────────────────────────────────────────────────────────────────
+const getDisputes = async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const query = { status: 'disputed' };
+
+  const [disputes, total] = await Promise.all([
+    Contract.find(query)
+      .populate('farmer', 'name phone')
+      .populate('buyer', 'name phone')
+      .sort({ 'dispute.raisedAt': -1 })
+      .skip(skip)
+      .limit(limit),
+    Contract.countDocuments(query),
+  ]);
+
+  return sendPaginated(res, { data: { disputes }, page, limit, total });
+};
+
+// ─── GET GEOGRAPHICAL ANALYTICS ──────────────────────────────────────────────────────────
+const getGeoAnalytics = async (req, res) => {
+  const analytics = await Contract.aggregate([
+    { $match: { status: 'completed' } },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'farmer',
+        foreignField: '_id',
+        as: 'farmerDetails'
+      }
+    },
+    { $unwind: '$farmerDetails' },
+    {
+      $group: {
+        _id: '$farmerDetails.location.state',
+        totalVolume: { $sum: '$terms.totalAmount' },
+        orderCount: { $sum: 1 },
+      }
+    },
+    { $sort: { totalVolume: -1 } },
+    {
+      $project: {
+        state: '$_id',
+        totalVolume: 1,
+        orderCount: 1,
+        _id: 0
+      }
+    }
+  ]);
+
+  return sendSuccess(res, { data: analytics });
+};
+
+const getAuditLogs = async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const [logs, total] = await Promise.all([
+    AuditLog.find()
+      .populate('admin', 'name role')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    AuditLog.countDocuments()
+  ]);
+  sendPaginated(res, { data: logs, page, limit, total });
+};
+
+module.exports = { 
+  getDashboard, 
+  getPendingVerifications, 
+  verifyUser, 
+  getAllUsers, 
+  banUser, 
+  resolveDispute, 
+  sendBroadcast,
+  getActivity,
+  getDisputes,
+  getGeoAnalytics,
+  getAuditLogs,
+  logAdminAction
+};

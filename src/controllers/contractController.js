@@ -4,7 +4,7 @@
  *
  * Key flows:
  *  1. getMyContracts        — fetches from DB, fully populated, correct user filter
- *  2. choosePaymentType     — Buyer chooses 'advance' or 'on_delivery'
+ *  2. choosePaymentType     — Buyer chooses 'advance' payment
  *  3. initiatePayment       — creates Razorpay order
  *  4. confirmPayment        — verify signature, confirm contract
  *  5. releasePayment        — after delivery, release escrow to farmer
@@ -27,8 +27,14 @@ const getMyContracts = async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const { status } = req.query;
     const userId = req.user._id || req.user.id;
+    const role = req.user.role;
 
-    const query = { $or: [{ farmer: userId }, { buyer: userId }] };
+    let query = {};
+    if (role === 'farmer' || role === 'buyer') {
+      query = { $or: [{ farmer: userId }, { buyer: userId }] };
+    }
+    // Admin sees all by default with query = {}
+    
     if (status) query.status = status;
 
     const [contracts, total] = await Promise.all([
@@ -121,8 +127,8 @@ const choosePaymentType = async (req, res) => {
     const { paymentType } = req.body;
     const userId = req.user._id || req.user.id;
 
-    if (!['advance', 'on_delivery'].includes(paymentType)) {
-      return sendError(res, { message: "paymentType must be 'advance' or 'on_delivery'", statusCode: 400 });
+    if (paymentType !== 'advance') {
+      return sendError(res, { message: "Only 'advance' payment is currently supported", statusCode: 400 });
     }
 
     const contract = await Contract.findById(req.params.id)
@@ -134,63 +140,15 @@ const choosePaymentType = async (req, res) => {
     if (contract.buyer._id.toString() !== userId.toString()) {
       return sendForbidden(res, 'Only the buyer can choose payment type');
     }
-    if (!['awaiting_buyer'].includes(contract.payment.status)) {
+    if (!['awaiting_buyer', 'pending'].includes(contract.payment.status)) {
       return sendError(res, { message: `Cannot choose payment — status is already ${contract.payment.status}`, statusCode: 400 });
     }
 
+    // Advance payment choice - update status
     await Contract.findByIdAndUpdate(contract._id, {
-      'payment.type':   paymentType,
-      'payment.status': paymentType === 'advance' ? 'awaiting_payment' : 'on_delivery',
+      'payment.type':   'advance',
+      'payment.status': 'awaiting_payment',
     });
-
-    if (paymentType === 'on_delivery') {
-      await Contract.findByIdAndUpdate(contract._id, {
-        status:           'confirmed',
-        'delivery.status':'scheduled',
-      });
-
-      const farmer = await require('../models/User').findById(contract.farmer._id).select('phone location');
-      const buyer  = await require('../models/User').findById(contract.buyer._id).select('phone location');
-
-      const deliveryResult = await PorterService.createOrder({
-        contract,
-        pickupAddress: farmer?.location?.address || 'Farmer location',
-        dropAddress:   buyer?.location?.address  || 'Buyer location',
-        farmerPhone:   farmer?.phone ? `+91${farmer.phone}` : '+919999999999',
-        buyerPhone:    buyer?.phone  ? `+91${buyer.phone}`  : '+919999999999',
-      }).catch((e) => { logger.error('Porter error:', e); return { success: false }; });
-
-      if (deliveryResult.success) {
-        await Contract.findByIdAndUpdate(contract._id, {
-          'delivery.porterOrderId': deliveryResult.orderId,
-          'delivery.trackingId':    deliveryResult.trackingId,
-          'delivery.estimatedDelivery': deliveryResult.estimatedTime,
-        });
-      }
-
-      NotificationService.create({
-        recipientId: contract.farmer._id,
-        senderId:    userId,
-        type:        'contract_created',
-        title:       '📦 Contract Confirmed — Pay on Delivery',
-        body:        `${contract.buyer.name} chose Pay on Delivery. Delivery scheduled. Prepare ${contract.terms.cropName}.`,
-        refModel:    'Contract',
-        refId:       contract._id,
-        priority:    'high',
-      }).catch(logger.error);
-
-      if (global.io) {
-        global.io.to(`user:${contract.farmer._id}`).emit('contract_confirmed', {
-          contractId:  contract._id,
-          paymentType: 'on_delivery',
-        });
-      }
-
-      return sendSuccess(res, {
-        message: 'Pay on Delivery confirmed. Delivery has been scheduled.',
-        data: { paymentType: 'on_delivery', deliveryScheduled: deliveryResult.success },
-      });
-    }
 
     return sendSuccess(res, {
       message: 'Advance payment selected. Proceed to payment.',
@@ -283,7 +241,7 @@ const releasePayment = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     if (!isBuyer && !isAdmin) return sendForbidden(res, 'Only buyer or admin can release payment');
 
-    if (!['in_escrow', 'on_delivery'].includes(contract.payment.status)) {
+    if (contract.payment.status !== 'in_escrow') {
       return sendError(res, { message: `Payment status is ${contract.payment.status}`, statusCode: 400 });
     }
 

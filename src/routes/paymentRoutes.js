@@ -38,7 +38,7 @@ router.post('/create-intent', restrictTo('buyer'), paymentLimiter, createStripeP
 router.post('/verify', restrictTo('buyer'), verifyStripePayment);
 
 // 3. Buyer confirms cash/UPI payment was made on delivery
-router.post('/cod-confirm', restrictTo('buyer'), confirmCodPayment);
+// router.post('/cod-confirm', restrictTo('buyer'), confirmCodPayment);
 
 // 4. Buyer releases escrow after confirming delivery
 router.post('/:contractId/release', releasePayment);

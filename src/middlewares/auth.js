@@ -6,6 +6,28 @@ const User = require('../models/User');
 const BLACKLIST_PREFIX = 'blacklist:token:';
 const logger = require('../utils/logger');
 const socketService = require('../utils/socketService');
+const SystemSetting = require('../models/SystemSetting');
+
+/**
+ * Check if the platform is in maintenance mode.
+ * Admins are exempted from this check.
+ */
+const checkMaintenance = async (req, res, next) => {
+  try {
+    const maintenance = await SystemSetting.findOne({ key: 'maintenance_mode' }).lean();
+    if (maintenance?.value === true && req.user?.role !== 'admin') {
+      return res.status(503).json({
+        success: false,
+        error: 'Platform is undergoing maintenance. Please try again later.',
+        isMaintenance: true
+      });
+    }
+    next();
+  } catch (error) {
+    logger.error('Maintenance check failed:', error);
+    next(); // Proceed if check fails to avoid blocking the app
+  }
+};
 
 /**
  * JWT verify options — MUST match the options used in jwt.js generateAccessToken().
@@ -144,4 +166,4 @@ const optionalAuth = async (req, res, next) => {
   next();
 };
 
-module.exports = { protect, restrictTo, requireVerified, optionalAuth, adminOnly };
+module.exports = { protect, restrictTo, requireVerified, optionalAuth, adminOnly, checkMaintenance };

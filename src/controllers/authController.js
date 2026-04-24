@@ -104,7 +104,7 @@ const sendOtp = async (req, res) => {
 
   await sendOTP(`+91${normalizedPhone}`, otp);
   logger.info(`OTP sent to ${normalizedPhone}`);
-  console.log(otp)
+
   return sendSuccess(res, {
     message: `OTP sent to ${normalizedPhone}`,
     data: { phone: normalizedPhone, isNewUser, expiresIn: 300 },
@@ -412,4 +412,45 @@ const updateProfile = async (req, res) => {
   });
 };
 
-module.exports = { sendOtp, verifyOtp, register, googleAuth, refreshToken, logout, getProfile, updateProfile };
+// ─── BANK DETAILS ────────────────────────────────────────────────────────────────────────
+const getBankDetails = async (req, res) => {
+  const user = await User.findById(req.user._id).select('bankDetails');
+  return sendSuccess(res, { data: { bankDetails: user.bankDetails || {} } });
+};
+
+const updateBankDetails = async (req, res) => {
+  const { accountNumber, bankName, ifscCode, accountHolderName, upiId } = req.body;
+
+  // Farmers can only add bank details if approved
+  if (req.user.role === 'farmer' && req.user.verificationStatus !== 'approved') {
+    return sendForbidden(res, 'Bank details can only be added after account approval');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        bankDetails: { accountNumber, bankName, ifscCode, accountHolderName, upiId },
+      },
+    },
+    { new: true, runValidators: true }
+  );
+
+  return sendSuccess(res, {
+    message: 'Bank details updated successfully',
+    data: { bankDetails: user.bankDetails },
+  });
+};
+
+module.exports = {
+  sendOtp,
+  verifyOtp,
+  register,
+  googleAuth,
+  refreshToken,
+  logout,
+  getProfile,
+  updateProfile,
+  getBankDetails,
+  updateBankDetails,
+};

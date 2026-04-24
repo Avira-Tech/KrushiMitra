@@ -43,6 +43,11 @@ const messageSchema = new mongoose.Schema(
       default: false,
     },
     readAt: Date,
+    isDelivered: {
+      type: Boolean,
+      default: false,
+    },
+    deliveredAt: Date,
     offer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Offer',
@@ -57,6 +62,12 @@ const messageSchema = new mongoose.Schema(
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
+      },
+    ],
+    reactions: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        emoji: String,
       },
     ],
   },

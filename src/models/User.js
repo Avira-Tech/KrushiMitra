@@ -138,6 +138,15 @@ const userSchema = new mongoose.Schema(
       pushNotifications: { type: Boolean, default: true },
     },
 
+    // ─── Bank Details ────────────────────────────────────────────────────────
+    bankDetails: {
+      accountNumber: { type: String, trim: true },
+      bankName: { type: String, trim: true },
+      ifscCode: { type: String, trim: true },
+      accountHolderName: { type: String, trim: true },
+      upiId: { type: String, trim: true },
+    },
+
     // ─── Metadata ─────────────────────────────────────────────────────────────
     metadata: {
       lastLogin: { type: Date },

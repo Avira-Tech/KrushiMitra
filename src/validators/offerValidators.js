@@ -56,7 +56,7 @@ const makeOfferSchema = [
   body('paymentTerms')
     .trim()
     .notEmpty().withMessage('Payment terms required')
-    .isIn(['advance', 'on_delivery', 'installments'])
+    .isIn(['advance', 'installments'])
     .withMessage('Invalid payment terms'),
 
   body('notes')

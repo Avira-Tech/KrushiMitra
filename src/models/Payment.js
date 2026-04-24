@@ -33,13 +33,11 @@ const paymentSchema = new mongoose.Schema(
       type: String,
       enum: [
         'awaiting_payment',   // user hasn’t paid yet
-        'initiated',          // Stripe PaymentIntent created
-        'requires_action',    // 3D Secure / additional auth needed
-        'requires_capture',   // Authorized but not yet captured (Escrow)
-        'paid',               // Stripe success
-        'captured',           // payment captured (funds moving to platform)
-        'in_escrow',          // held by platform
-        'released',           // sent to payee
+        'initiated',          // Razorpay order created
+        'paid',               // Razorpay success
+        'captured',           // payment captured by webhook or manual verification
+        'in_escrow',          // locked
+        'released',           // sent to farmer
         'failed',
         'refunded',
         'refund_initiated'
@@ -50,19 +48,9 @@ const paymentSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ['stripe', 'upi', 'bank_transfer', 'razorpay', 'cod', 'escrow_deposit'],
-      default: 'stripe',
+      default: 'razorpay',
     },
-    // Stripe payment details
-    stripe: {
-      paymentIntentId: { type: String, index: true },
-      clientSecret: String,
-      paymentMethodId: String,
-      customerId: String,
-      status: String,
-      amountReceived: Number,
-      payoutId: String,
-    },
-    // Razorpay payment details (Legacy/Migration)
+    // Razorpay payment details
     razorpay: {
       orderId: { type: String, index: true },
       paymentId: { type: String, index: true },
@@ -121,8 +109,7 @@ paymentSchema.index({ contract: 1, status: 1 });
 paymentSchema.index({ payer: 1, createdAt: -1 });
 paymentSchema.index({ payee: 1, createdAt: -1 });
 paymentSchema.index({ status: 1, createdAt: -1 });
-paymentSchema.index({ 'stripe.paymentIntentId': 1 }, { sparse: true });
 paymentSchema.index({ 'razorpay.orderId': 1 }, { sparse: true });
 paymentSchema.index({ 'razorpay.paymentId': 1 }, { sparse: true });
 
-module.exports = mongoose.model('Payment', paymentSchema);
+module.exports = mongoose.model('Payment', paymentSchema); 'refunded'

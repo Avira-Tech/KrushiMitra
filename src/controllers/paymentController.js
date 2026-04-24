@@ -13,7 +13,7 @@
  *   6. POST /api/v1/contracts/:id/payment/release  → buyer releases funds after delivery
  *
  * PAY ON DELIVERY:
- *   1. POST /api/v1/contracts/:id/payment/choose  { paymentType: 'on_delivery' }
+ *   1. POST /api/v1/contracts/:id/payment/choose  { paymentType: 'advance' }
  *      → contract confirmed immediately, delivery scheduled
  *   2. POST /api/v1/payments/cod-confirm           → buyer records cash/UPI payment on delivery
  *
@@ -75,10 +75,16 @@ const createStripePaymentIntent = async (req, res) => {
       return sendError(res, { message: `Current payment status '${contract.payment?.status}' does not allow payment initiation`, statusCode: 400 });
     }
 
+    const SystemSetting = require('../models/SystemSetting');
+    
+    // Fetch dynamic commission rate (default to 2% if not set)
+    const commissionSetting = await SystemSetting.findOne({ key: 'platform_commission_rate' });
+    const commissionRate = commissionSetting ? parseFloat(commissionSetting.value) : 0.02;
+
     // Calculate fees in integer units (cents/paise) to avoid precision errors
     const totalAmount = contract.terms?.totalAmount || 0;
     const totalUnits = Math.round(totalAmount * 100);
-    const platformUnits = Math.round(totalUnits * 0.02);
+    const platformUnits = Math.round(totalUnits * commissionRate);
     const gstUnits = Math.round(platformUnits * 0.18);
     const grandTotalUnits = totalUnits + platformUnits + gstUnits;
 
@@ -326,7 +332,7 @@ const confirmCodPayment = async (req, res) => {
  */
 const releasePayment = async (req, res) => {
   try {
-    const { id: contractId } = req.params;
+    const { contractId } = req.params;
     const userId = req.user._id || req.user.id;
 
     const contract = await Contract.findById(contractId);
@@ -439,10 +445,18 @@ const getPaymentHistory = async (req, res) => {
     const userId = req.user._id || req.user.id;
     const role = req.user.role;
 
-    const query = role === 'farmer' ? { payee: userId } : { payer: userId };
+    let query = {};
+    if (role === 'farmer') {
+      query = { payee: userId };
+    } else if (role === 'buyer') {
+      query = { payer: userId };
+    }
+    // If admin, query remains {} (fetch all)
 
     const payments = await Payment.find(query)
       .populate('contract', 'status terms delivery.status payment.status')
+      .populate('payer', 'name phone')
+      .populate('payee', 'name phone')
       .sort({ createdAt: -1 })
       .lean();
 

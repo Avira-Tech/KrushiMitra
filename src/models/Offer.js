@@ -188,7 +188,7 @@ const offerSchema = new mongoose.Schema(
     // ─── Expiry ───────────────────────────────────────────────────────────────
     expiresAt: {
       type: Date,
-      default: () => new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
+      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       index: true,
     },
 
