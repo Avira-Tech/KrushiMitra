@@ -3,6 +3,8 @@ const Message = require('../models/Message');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const socketService = require('../utils/socketService');
+const { RtcTokenBuilder, RtcRole } = require('agora-token');
+
 
 /**
  * Start a conversation or find existing one
@@ -279,6 +281,56 @@ const toggleReaction = async (req, res) => {
   }
 };
 
+/**
+ * Generate Agora Token for Voice/Video Call
+ * POST /api/v1/chats/call/token
+ */
+const generateAgoraToken = async (req, res) => {
+  try {
+    const { channelName, uid = 0, role = 'publisher', expireTime = 3600 } = req.body;
+
+    if (!channelName) {
+      return res.status(400).json({ success: false, error: 'Channel name is required' });
+    }
+
+    const appId = process.env.AGORA_APP_ID;
+    const appCertificate = process.env.AGORA_APP_CERTIFICATE;
+
+    if (!appId || !appCertificate || appId === 'your_agora_app_id') {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Agora credentials not configured on server' 
+      });
+    }
+
+    const rtcRole = role === 'publisher' ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
+    const privilegeExpireTime = Math.floor(Date.now() / 1000) + expireTime;
+
+    const token = RtcTokenBuilder.buildTokenWithUid(
+      appId,
+      appCertificate,
+      channelName,
+      uid,
+      rtcRole,
+      privilegeExpireTime,
+      privilegeExpireTime
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        token,
+        channelName,
+        uid,
+        appId
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Error generating Agora token:', error);
+    return res.status(500).json({ success: false, error: 'Failed to generate token' });
+  }
+};
+
 module.exports = {
   startChat,
   getConversations,
@@ -287,5 +339,6 @@ module.exports = {
   editMessage,
   getPresence,
   toggleReaction,
+  generateAgoraToken,
   getChats: getConversations,
 };

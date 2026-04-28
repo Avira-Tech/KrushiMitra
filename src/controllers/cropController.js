@@ -745,7 +745,9 @@ const addCrop = async (req, res) => {
       quality,
       harvestDate:       harvestDate ? new Date(harvestDate) : undefined,
       availableFrom:     availableFrom ? new Date(availableFrom) : undefined,
-      images:            Array.isArray(images) ? images.map((img) => sanitizer.sanitizeUrl(img)).filter(Boolean) : [],
+      images:            Array.isArray(images) 
+        ? images.map((img) => ({ url: sanitizer.sanitizeUrl(img) })).filter(img => img.url) 
+        : [],
       pesticides:        Boolean(pesticides),
       isNegotiable:      Boolean(isNegotiable),
       organic:           Boolean(organic),
@@ -797,7 +799,7 @@ const updateCrop = async (req, res) => {
       } else if (['name', 'category', 'description', 'soilType'].includes(field)) {
         updates[field] = sanitizer.sanitizeString(req.body[field]);
       } else if (field === 'images') {
-        updates.images = req.body[field].map((img) => sanitizer.sanitizeUrl(img)).filter(Boolean);
+        updates.images = req.body[field].map((img) => ({ url: sanitizer.sanitizeUrl(img) })).filter(img => img.url);
       } else if (['isNegotiable', 'organic', 'pickupAvailable', 'pesticides'].includes(field)) {
         updates[field] = Boolean(req.body[field]);
       } else {

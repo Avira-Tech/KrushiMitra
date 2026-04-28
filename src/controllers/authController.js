@@ -104,7 +104,7 @@ const sendOtp = async (req, res) => {
 
   await sendOTP(`+91${normalizedPhone}`, otp);
   logger.info(`OTP sent to ${normalizedPhone}`);
-
+  console.log(otp)
   return sendSuccess(res, {
     message: `OTP sent to ${normalizedPhone}`,
     data: { phone: normalizedPhone, isNewUser, expiresIn: 300 },

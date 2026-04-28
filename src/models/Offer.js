@@ -155,6 +155,11 @@ const offerSchema = new mongoose.Schema(
 
     // ─── Delivery details ────────────────────────────────────────────────────
     deliveryLocation: { type: String, trim: true },
+    deliveryServiceType: { 
+      type: String, 
+      enum: ['local', 'village_to_city', 'intercity_porter'], 
+      default: 'local' 
+    },
     deliveryDate:     { type: Date },
     paymentTerms:     { type: String, trim: true, default: 'KrushiMitra Secure Escrow' },
 

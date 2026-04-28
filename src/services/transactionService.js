@@ -119,12 +119,25 @@ const transactionOfferAcceptance = (offerId, userId) =>
     // 2. Atomically decrement stock — the $gte condition prevents overselling
     const updatedCrop = await Crop.findOneAndUpdate(
       { _id: offer.crop._id, availableQuantity: { $gte: offer.quantity } },
-      { $inc: { availableQuantity: -offer.quantity } },
+      { 
+        $inc: { availableQuantity: -offer.quantity },
+        $set: { 
+          // If the new available quantity (after decrement) would be 0, set status to sold
+          // We can't easily check the new value in the same query without a complex pipeline
+        } 
+      },
       { session, new: true }
     );
 
     if (!updatedCrop) {
       throw new Error('Insufficient crop quantity — concurrent purchase detected');
+    }
+
+    // NEW: Mark as sold if no more quantity available
+    if (updatedCrop.availableQuantity <= 0) {
+      updatedCrop.status = 'sold';
+      updatedCrop.isAvailable = false;
+      await updatedCrop.save({ session });
     }
 
     // 3. Create contract
@@ -147,6 +160,8 @@ const transactionOfferAcceptance = (offerId, userId) =>
             platformFee,
             netAmount:    parseFloat((finalTotalAmount - platformFee).toFixed(2)),
             deliveryDate: offer.deliveryDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            deliveryAddress: offer.deliveryLocation,
+            deliveryServiceType: offer.deliveryServiceType || 'local',
             paymentTerms: offer.paymentTerms ?? 'KrushiMitra Secure Escrow',
             // Flatten farmer/buyer names so frontend Contract interface works
             farmerName:   offer.farmer.name,
@@ -269,7 +284,7 @@ const transactionPaymentRelease = (contractId) =>
         'payment.status': 'released',
         'payment.releasedAt': new Date(),
         'delivery.status': 'delivered',
-        'delivery.deliveredAt': new Date(),
+        'delivery.actualDelivery': new Date(),
       },
       { session, new: true }
     );
@@ -322,7 +337,7 @@ const transactionCodPayment = (contractId, paymentData) =>
         'payment.paidAt': new Date(),
         'payment.releasedAt': new Date(),
         'delivery.status': 'delivered',
-        'delivery.deliveredAt': new Date(),
+        'delivery.actualDelivery': new Date(),
       },
       { session, new: true }
     );

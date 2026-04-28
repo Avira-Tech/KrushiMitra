@@ -40,7 +40,7 @@ const getMyContracts = async (req, res) => {
     const [contracts, total] = await Promise.all([
       Contract.find(query)
         .populate('farmer', 'name phone rating avatar')
-        .populate('buyer',  'name phone companyName gstNumber avatar')
+        .populate('buyer',  'name phone companyName gstNumber avatar rating')
         .populate('crop',   'name images pricePerKg')
         .populate('offer')
         .sort({ createdAt: -1 })
@@ -82,7 +82,7 @@ const getContractById = async (req, res) => {
     const userId   = req.user._id || req.user.id;
     const contract = await Contract.findById(req.params.id)
       .populate('farmer', 'name phone rating avatar location')
-      .populate('buyer',  'name phone companyName gstNumber avatar')
+      .populate('buyer',  'name phone companyName gstNumber avatar rating')
       .populate('crop',   'name images pricePerKg quality')
       .populate('offer');
 
@@ -351,6 +351,45 @@ const trackDelivery = async (req, res) => {
   }
 };
 
+// ─── PATCH /api/v1/contracts/:id/delivery/location ─────────────────────────
+const updateDeliveryLocation = async (req, res) => {
+  try {
+    const { lat, lng, address } = req.body;
+    const userId = req.user._id || req.user.id;
+
+    if (!lat || !lng) {
+      return sendError(res, { message: 'Coordinates (lat, lng) are required', statusCode: 400 });
+    }
+
+    const contract = await Contract.findById(req.params.id);
+    if (!contract) return sendNotFound(res, 'Contract not found');
+
+    if (contract.buyer.toString() !== userId.toString()) {
+      return sendForbidden(res, 'Only the buyer can update the delivery location');
+    }
+
+    if (contract.status !== 'active') {
+      return sendError(res, { message: 'Location can only be updated for active contracts before payment confirmed', statusCode: 400 });
+    }
+
+    await Contract.findByIdAndUpdate(contract._id, {
+      'delivery.buyerLocation': {
+        type: 'Point',
+        coordinates: [lng, lat],
+        address: address || '',
+        capturedAt: new Date(),
+      },
+      'delivery.locationCaptured': true,
+      'terms.deliveryAddress': address || contract.terms.deliveryAddress,
+    });
+
+    return sendSuccess(res, { message: 'Delivery location updated successfully' });
+  } catch (err) {
+    logger.error('updateDeliveryLocation error:', err);
+    return sendError(res, { message: 'Failed to update delivery location', statusCode: 500 });
+  }
+};
+
 module.exports = {
   getMyContracts,
   getContractById,
@@ -360,4 +399,5 @@ module.exports = {
   releasePayment,
   raiseDispute,
   trackDelivery,
+  updateDeliveryLocation,
 };

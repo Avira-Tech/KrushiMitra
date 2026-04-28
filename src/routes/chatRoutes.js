@@ -10,6 +10,7 @@ const {
   editMessage,
   getPresence,
   toggleReaction,
+  generateAgoraToken,
 } = require('../controllers/chatController');
 
 // ─── Protected routes ────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ router.use(protect);
 
 router.get('/', getChats || getConversations);
 router.get('/presence', getPresence);
+router.post('/call/token', generateAgoraToken);
 router.get('/conversations', getConversations);
 router.get('/conversations/:id/messages', getMessages);
 router.delete('/messages/:id', deleteMessage);

@@ -23,6 +23,11 @@ const getPayoutSummary = async (req, res) => {
 
     const totalEarned = releasedPayments.reduce((sum, p) => sum + p.amount, 0);
 
+    // Calculate overall Total Revenue from all contracts
+    const Contract = require('../models/Contract');
+    const allContracts = await Contract.find({ farmer: farmerId });
+    const totalRevenue = allContracts.reduce((sum, c) => sum + (c.terms?.totalAmount || 0), 0);
+
     // 2. Identify which of these are already paid out
     const paidOutIds = await Payout.find({
       farmer: farmerId,
@@ -43,6 +48,7 @@ const getPayoutSummary = async (req, res) => {
 
     return sendSuccess(res, {
       data: {
+        totalRevenue,
         totalEarned,
         withdrawnAmount,
         availableBalance,

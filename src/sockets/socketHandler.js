@@ -244,6 +244,51 @@ const initializeSocket = (io) => {
       }
     });
 
+    // ─── Call Signaling Events ────────────────────────────────────────────────
+    
+    socket.on('call:initiate', ({ recipientId, channelName, type, callerName, token }) => {
+      logger.info(`[Call] Initiate: ${userId} -> ${recipientId} (${type})`);
+      io.to(`user:${recipientId}`).emit('call:incoming', {
+        callerId: userId,
+        callerName: callerName || socket.userName,
+        channelName,
+        type,
+        token // Optional, but can be sent if generated upfront
+      });
+    });
+
+    socket.on('call:accept', ({ callerId, channelName }) => {
+      logger.info(`[Call] Accepted: ${userId} (answering ${callerId})`);
+      io.to(`user:${callerId}`).emit('call:accepted', {
+        recipientId: userId,
+        channelName
+      });
+    });
+
+    socket.on('call:reject', ({ callerId, channelName }) => {
+      logger.info(`[Call] Rejected: ${userId} (rejecting ${callerId})`);
+      io.to(`user:${callerId}`).emit('call:rejected', {
+        recipientId: userId,
+        channelName
+      });
+    });
+
+    socket.on('call:end', ({ otherUserId, channelName }) => {
+      logger.info(`[Call] End: ${userId} with ${otherUserId}`);
+      io.to(`user:${otherUserId}`).emit('call:ended', {
+        endedBy: userId,
+        channelName
+      });
+    });
+
+    socket.on('call:hangup', ({ recipientId, channelName }) => {
+      logger.info(`[Call] Hangup: ${userId} (cancelling to ${recipientId})`);
+      io.to(`user:${recipientId}`).emit('call:cancelled', {
+        callerId: userId,
+        channelName
+      });
+    });
+
     // ─── Disconnect ───────────────────────────────────────────────────────────
 
     socket.on('disconnect', async (reason) => {

@@ -37,6 +37,11 @@ const contractSchema = new mongoose.Schema(
       netAmount: { type: Number }, // totalAmount - platformFee
       deliveryDate: { type: Date, required: true },
       deliveryAddress: String,
+      deliveryServiceType: { 
+        type: String, 
+        enum: ['local', 'village_to_city', 'intercity_porter'], 
+        default: 'local' 
+      },
       paymentTerms: {
         type: String,
         default: "50% advance, 50% on delivery",
@@ -101,6 +106,13 @@ const contractSchema = new mongoose.Schema(
       driverName: String,
       driverPhone: String,
       deliveryProof: [String], // Image URLs
+      buyerLocation: {
+        type: { type: String, enum: ['Point'], default: 'Point' },
+        coordinates: [Number], // [lng, lat]
+        address: String,
+        capturedAt: Date
+      },
+      locationCaptured: { type: Boolean, default: false },
     },
     // Dispute
     dispute: {
