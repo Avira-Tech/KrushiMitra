@@ -154,7 +154,7 @@ const verifyOtp = async (req, res) => {
 
 // ─── REGISTER ─────────────────────────────────────────────────────────────────────────────
 const register = async (req, res) => {
-  const { name, phone, email, role, farmerId, governmentId, companyName, gstNumber, businessAddress, location, language, otp, fcmToken } = req.body;
+  const { name, phone, email, role, farmerId, aadhaarNumber, companyName, gstNumber, businessAddress, location, language, otp, fcmToken } = req.body;
   const normalizedPhone = sanitizePhone(phone);
 
   // Verify OTP via helper
@@ -190,7 +190,7 @@ const register = async (req, res) => {
 
   if (role === 'farmer') {
     updateData.farmerId = farmerId;
-    updateData.governmentId = governmentId;
+    updateData.aadhaarNumber = aadhaarNumber;
   } else if (role === 'buyer') {
     updateData.companyName = companyName;
     updateData.gstNumber = gstNumber;

@@ -59,7 +59,7 @@ const userSchema = new mongoose.Schema(
 
     // Farmer-specific
     farmerId: { type: String, trim: true },
-    govtId: { type: String, trim: true },
+    aadhaarNumber: { type: String, trim: true },
 
     // Buyer-specific
     companyName: { type: String, trim: true },
