@@ -2,7 +2,8 @@ const User = require('../models/User');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const { redis } = require('../config/redis');
 const { sendOTP } = require('../config/sms');
-const { generateOTP, sanitizePhone, isValidIndianPhone, hashString } = require('../utils/helpers');
+const { sendEmail } = require('../utils/emailService');
+const { generateOTP, sanitizePhone, isValidIndianPhone, hashString, generateFarmerId } = require('../utils/helpers');
 const { sendSuccess, sendCreated, sendError, sendUnauthorized, sendValidationError } = require('../utils/apiResponse');
 const NotificationService = require('../services/notificationService');
 const logger = require('../utils/logger');
@@ -26,7 +27,14 @@ const verifyOtpHelper = async (phone, otp) => {
     return { success: false, error: `Too many failed attempts. Try again in ${remaining} minutes.`, status: 403 };
   }
 
-  const user = await User.findOne({ phone: normalizedPhone }).select('+otp +refreshToken');
+  const user = await User.findOne({
+    $or: [
+      { phone: normalizedPhone },
+      { phone: `+91${normalizedPhone}` },
+      { phone: `91${normalizedPhone}` },
+      { phone: `0${normalizedPhone}` }
+    ]
+  }).select('+otp +refreshToken');
   if (!user) return { success: false, error: 'User not found', status: 401 };
   if (!user.otp?.code || !user.otp?.expiresAt) return { success: false, error: 'No active OTP. Request a new one.', status: 401 };
 
@@ -66,6 +74,53 @@ const verifyOtpHelper = async (phone, otp) => {
   return { success: true, user };
 };
 
+// ─── CHECK USER ────────────────────────────────────────────────────────────────────────
+const checkUser = async (req, res) => {
+  const { phone } = req.body;
+  const normalizedPhone = sanitizePhone(phone);
+
+  if (!isValidIndianPhone(normalizedPhone)) {
+    return sendValidationError(res, [{ field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' }]);
+  }
+
+  // Query multiple formats to catch legacy or variably formatted numbers
+  const user = await User.findOne({
+    $or: [
+      { phone: normalizedPhone },
+      { phone: `+91${normalizedPhone}` },
+      { phone: `91${normalizedPhone}` },
+      { phone: `0${normalizedPhone}` }
+    ]
+  });
+
+  return sendSuccess(res, {
+    data: {
+      exists: !!(user && user.name), // Registered if name exists
+      role: user?.role || null,
+      phone: normalizedPhone
+    }
+  });
+};
+
+// ─── CHECK AVAILABILITY ────────────────────────────────────────────────────────
+const checkAvailability = async (req, res) => {
+  const { phone, email } = req.body;
+  const results = { phone: false, email: false };
+
+  if (phone) {
+    const normalizedPhone = sanitizePhone(phone);
+    const user = await User.findOne({ phone: normalizedPhone });
+    if (user && user.name) results.phone = true;
+  }
+
+  if (email) {
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (user && user.name) results.email = true;
+  }
+
+  return sendSuccess(res, { data: results });
+};
+
 // ─── SEND OTP ───────────────────────────────────────────────────────────────────────────
 const sendOtp = async (req, res) => {
   const { phone, role } = req.body;
@@ -75,7 +130,14 @@ const sendOtp = async (req, res) => {
     return sendValidationError(res, [{ field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' }]);
   }
 
-  let user = await User.findOne({ phone: normalizedPhone }).select('+otp');
+  let user = await User.findOne({
+    $or: [
+      { phone: normalizedPhone },
+      { phone: `+91${normalizedPhone}` },
+      { phone: `91${normalizedPhone}` },
+      { phone: `0${normalizedPhone}` }
+    ]
+  }).select('+otp');
   const isNewUser = !user;
 
   // Rate limiting: max 5 OTPs per 20 minutes (hardened)
@@ -104,11 +166,79 @@ const sendOtp = async (req, res) => {
 
   await sendOTP(`+91${normalizedPhone}`, otp);
   logger.info(`OTP sent to ${normalizedPhone}`);
-  console.log(otp)
   return sendSuccess(res, {
     message: `OTP sent to ${normalizedPhone}`,
     data: { phone: normalizedPhone, isNewUser, expiresIn: 300 },
   });
+};
+
+// ─── SEND EMAIL OTP ───────────────────────────────────────────────────────────────────
+const sendEmailOtp = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return sendValidationError(res, [{ field: 'email', message: 'Email is required' }]);
+
+  const otp = generateOTP();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+
+  // Upsert user if needed (using email as identifier if phone not provided yet, but usually they come together)
+  // However, during registration, we might not have the phone yet if they click email first.
+  // Actually, we usually require phone first.
+
+  const otpData = {
+    'emailOtp.code': hashString(otp),
+    'emailOtp.expiresAt': expiresAt,
+  };
+
+  await User.findOneAndUpdate(
+    { email: email.toLowerCase() },
+    { $set: otpData },
+    { upsert: true, new: true }
+  );
+
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'KrushiMitra - Email Verification OTP',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #1B5E20;">Verify your email</h2>
+          <p>Thank you for joining KrushiMitra. Use the OTP below to verify your email address:</p>
+          <div style="background: #F1F8E9; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; color: #1B5E20;">
+            ${otp}
+          </div>
+          <p>This OTP is valid for 10 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <hr style="border: none; border-top: 1px solid #EEE; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #999;">KrushiMitra Team</p>
+        </div>
+      `
+    });
+
+    return sendSuccess(res, { message: `Verification code sent to ${email}` });
+  } catch (err) {
+    logger.error('Email OTP failed:', err);
+    return sendError(res, { message: 'Failed to send email OTP' });
+  }
+};
+
+// ─── VERIFY EMAIL OTP ──────────────────────────────────────────────────────────────────
+const verifyEmailOtp = async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return sendValidationError(res, [{ field: 'otp', message: 'Email and OTP required' }]);
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select('+emailOtp');
+  if (!user || !user.emailOtp?.code) return sendError(res, { message: 'Verification code not found' });
+
+  if (new Date() > user.emailOtp.expiresAt) return sendError(res, { message: 'Verification code expired' });
+
+  if (user.emailOtp.code !== hashString(otp)) return sendError(res, { message: 'Invalid verification code' });
+
+  await User.findByIdAndUpdate(user._id, {
+    $set: { isEmailVerified: true },
+    $unset: { 'emailOtp.code': 1, 'emailOtp.expiresAt': 1 }
+  });
+
+  return sendSuccess(res, { message: 'Email verified successfully' });
 };
 
 // ─── VERIFY OTP / LOGIN ─────────────────────────────────────────────────────────────
@@ -125,7 +255,7 @@ const verifyOtp = async (req, res) => {
   // Success: Clear OTP data and reset wrong attempts
   const update = {
     $unset: { 'otp.code': 1, 'otp.expiresAt': 1, 'otp.lockedUntil': 1 },
-    $set: { 'otp.attempts': 0, 'otp.wrongAttempts': 0, lastLoginAt: new Date() },
+    $set: { 'otp.attempts': 0, 'otp.wrongAttempts': 0, lastLoginAt: new Date(), isPhoneVerified: true },
   };
 
   if (fcmToken) {
@@ -157,13 +287,25 @@ const register = async (req, res) => {
   const { name, phone, email, role, farmerId, aadhaarNumber, companyName, gstNumber, businessAddress, location, language, otp, fcmToken } = req.body;
   const normalizedPhone = sanitizePhone(phone);
 
-  // Verify OTP via helper
-  const result = await verifyOtpHelper(phone, otp);
-  if (!result.success) {
-    return res.status(result.status).json({ success: false, error: result.error });
+  // Verify OTP via helper, or check if already verified in Step 1
+  let tempUser;
+  if (!otp) {
+    tempUser = await User.findOne({ phone: normalizedPhone });
+    if (!tempUser || !tempUser.isPhoneVerified) {
+      return sendError(res, { message: 'Phone verification required', statusCode: 401 });
+    }
+  } else {
+    const result = await verifyOtpHelper(phone, otp);
+    if (!result.success) {
+      // Fallback: Check if already verified (in case of retry/double tap)
+      tempUser = await User.findOne({ phone: normalizedPhone });
+      if (!tempUser || !tempUser.isPhoneVerified) {
+        return res.status(result.status).json({ success: false, error: result.error });
+      }
+    } else {
+      tempUser = result.user;
+    }
   }
-
-  const tempUser = result.user;
 
   // Check if already registered with name
   if (tempUser.name) {
@@ -172,9 +314,25 @@ const register = async (req, res) => {
 
   // Check email uniqueness
   if (email) {
-    const emailExists = await User.findOne({ email: email.toLowerCase() });
+    const emailExists = await User.findOne({ email: email.toLowerCase(), _id: { $ne: tempUser._id } });
     if (emailExists) {
       return sendError(res, { message: 'Email already registered', statusCode: 409 });
+    }
+  }
+
+  // Check Aadhaar & Farmer ID uniqueness for farmers
+  if (role === 'farmer') {
+    if (aadhaarNumber) {
+      const aadhaarExists = await User.findOne({ aadhaarNumber, _id: { $ne: tempUser._id } });
+      if (aadhaarExists) {
+        return sendError(res, { message: 'Aadhaar number already registered', statusCode: 409 });
+      }
+    }
+    if (farmerId) {
+      const farmerIdExists = await User.findOne({ farmerId, _id: { $ne: tempUser._id } });
+      if (farmerIdExists) {
+        return sendError(res, { message: 'Farmer ID already taken', statusCode: 409 });
+      }
     }
   }
 
@@ -189,7 +347,7 @@ const register = async (req, res) => {
   };
 
   if (role === 'farmer') {
-    updateData.farmerId = farmerId;
+    updateData.farmerId = farmerId || generateFarmerId(name, normalizedPhone);
     updateData.aadhaarNumber = aadhaarNumber;
   } else if (role === 'buyer') {
     updateData.companyName = companyName;
@@ -367,16 +525,26 @@ const getProfile = async (req, res) => {
 
 // ─── UPDATE PROFILE ──────────────────────────────────────────────────────────────────────
 const updateProfile = async (req, res) => {
-  const { name, email, language, fcmToken, location, companyName, businessAddress, username, avatar } = req.body;
+  const { name, email, phone, language, fcmToken, location, companyName, businessAddress, username, avatar } = req.body;
 
   const updateData = {};
   const specialUpdates = {};
 
   if (name) updateData.name = name;
+
   if (email && email.toLowerCase() !== req.user.email) {
+    const emailExists = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.user._id } });
+    if (emailExists) return sendError(res, { message: 'Email already taken', statusCode: 400 });
     updateData.email = email.toLowerCase();
-    updateData.isVerified = false; // Mark unverified until new email is verified
-    logger.info(`User ${req.user._id} changed email. Status set to unverified.`);
+  }
+
+  if (phone) {
+    const normalizedPhone = phone.replace(/\D/g, '').slice(-10);
+    if (normalizedPhone !== req.user.phone) {
+      const phoneExists = await User.findOne({ phone: normalizedPhone, _id: { $ne: req.user._id } });
+      if (phoneExists) return sendError(res, { message: 'Phone number already taken', statusCode: 400 });
+      updateData.phone = normalizedPhone;
+    }
   }
 
   if (language) updateData.language = language;
@@ -443,8 +611,12 @@ const updateBankDetails = async (req, res) => {
 };
 
 module.exports = {
+  checkUser,
+  checkAvailability,
   sendOtp,
+  sendEmailOtp,
   verifyOtp,
+  verifyEmailOtp,
   register,
   googleAuth,
   refreshToken,

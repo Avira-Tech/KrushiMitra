@@ -18,7 +18,7 @@ const registerSchema = Joi.object({
   phone: Joi.string().pattern(/^[6-9]\d{9}$/).required(),
   email: Joi.string().email().optional().allow(null, ''),
   role: Joi.string().valid('farmer', 'buyer', 'admin').required(),
-  otp: Joi.string().length(6).required(),
+  otp: Joi.string().length(6).optional(),
   fcmToken: Joi.string().optional(),
   location: Joi.object({
     lat: Joi.number().required(),

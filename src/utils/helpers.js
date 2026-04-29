@@ -55,6 +55,16 @@ const generateReceiptId = () => {
 };
 
 /**
+ * Generate unique Farmer ID
+ */
+const generateFarmerId = (name, phone) => {
+  const namePart = (name || 'USR').substring(0, 3).toUpperCase().replace(/\s/g, '');
+  const phonePart = (phone || '0000').slice(-4);
+  const random = Math.floor(100 + Math.random() * 900);
+  return `KM-F-${namePart}-${phonePart}-${random}`;
+};
+
+/**
  * Hash a string using SHA-256
  */
 const hashString = (str) => {
@@ -155,4 +165,5 @@ module.exports = {
   calculatePlatformFee,
   isValidIndianPhone,
   generateAIPriceRecommendation,
+  generateFarmerId,
 };

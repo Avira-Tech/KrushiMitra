@@ -27,6 +27,10 @@ const contractSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    likedBy: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    }],
     // Contract terms
     terms: {
       cropName: { type: String, required: true },

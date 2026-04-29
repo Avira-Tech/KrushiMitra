@@ -12,12 +12,16 @@ const {
   raiseDispute,
   trackDelivery,
   updateDeliveryLocation,
+  toggleLikeContract,
+  sendContractEmail,
 } = require('../controllers/contractController');
 
 router.use(protect);
 
 router.get('/',                                   getMyContracts);
 router.get('/:id',                                getContractById);
+router.post('/:id/like',                          toggleLikeContract);
+router.post('/:id/email',                         sendContractEmail);
 router.post('/:id/payment/choose',  restrictTo('buyer'), choosePaymentType);
 router.post('/:id/payment/initiate', restrictTo('buyer'), initiatePayment);
 router.post('/:id/payment/confirm',  restrictTo('buyer'), confirmPayment);

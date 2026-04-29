@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const User = require('../models/User');
 const Contract = require('../models/Contract');
@@ -60,7 +61,7 @@ const getUserReviews = async (req, res) => {
   ]);
 
   const stats = await Review.aggregate([
-    { $match: { reviewee: require('mongoose').Types.ObjectId(userId), isVisible: true } },
+    { $match: { reviewee: new mongoose.Types.ObjectId(userId), isVisible: true } },
     { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
 

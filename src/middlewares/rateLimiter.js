@@ -53,4 +53,12 @@ const uploadLimiter = createLimiter({
   prefix: 'upload',
 });
 
-module.exports = { apiLimiter, authLimiter, otpLimiter, uploadLimiter };
+// Check availability rate limiter
+const checkLimiter = createLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 50,
+  message: 'Too many availability checks. Please wait.',
+  prefix: 'check',
+});
+
+module.exports = { apiLimiter, authLimiter, otpLimiter, uploadLimiter, checkLimiter };

@@ -58,8 +58,8 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: null },
 
     // Farmer-specific
-    farmerId: { type: String, trim: true },
-    aadhaarNumber: { type: String, trim: true },
+    farmerId: { type: String, trim: true, unique: true, sparse: true },
+    aadhaarNumber: { type: String, trim: true, unique: true, sparse: true },
 
     // Buyer-specific
     companyName: { type: String, trim: true },
@@ -85,13 +85,13 @@ const userSchema = new mongoose.Schema(
 
     // ─── Verification ────────────────────────────────────────────────────────
     isPhoneVerified: { type: Boolean, default: false },
+    isEmailVerified: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },  // admin-verified KYC
     verificationStatus: {
       type: String,
       enum: ['pending', 'under_review', 'approved', 'rejected'],
       default: 'pending',
     },
-    verificationNote: { type: String },
     verifiedAt: { type: Date },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
@@ -129,6 +129,10 @@ const userSchema = new mongoose.Schema(
       wrongAttempts: { type: Number, default: 0 }, // OTP verification failures
       lockedUntil: { type: Date },
     },
+    emailOtp: {
+      code: { type: String },
+      expiresAt: { type: Date },
+    },
 
     // ─── Preferences ──────────────────────────────────────────────────────────
     preferences: {
@@ -161,9 +165,11 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// ─── Indexes ──────────────────────────────────────────────────────────────────
+// Explicit unique indexes for sparse fields
 userSchema.index({ phone: 1 }, { unique: true, sparse: true });
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ farmerId: 1 }, { unique: true, sparse: true });
+userSchema.index({ aadhaarNumber: 1 }, { unique: true, sparse: true });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ isVerified: 1 });
@@ -171,8 +177,24 @@ userSchema.index({ verificationStatus: 1 });
 userSchema.index({ 'location.coordinates': '2dsphere' });
 userSchema.index({ createdAt: -1 });
 
-// ─── Pre-save: hash password only when it is set and modified ─────────────────
+// ─── Pre-save: normalize phone and hash password ─────────────────
 userSchema.pre('save', async function (next) {
+  // Normalize phone to 10 digits
+  if (this.phone) {
+    this.phone = this.phone.replace(/\D/g, '').slice(-10);
+  }
+
+  // Auto-generate farmerId if role is farmer and it's missing
+  if (this.role === 'farmer' && !this.farmerId) {
+    // We need to import generateFarmerId here or move it to models/User.js
+    // Since it's in helpers.js, we might have a circular dependency if we import helpers.js here.
+    // I'll define a simple local version or use the one from helpers.js if safe.
+    const namePart = (this.name || 'USR').substring(0, 3).toUpperCase().replace(/\s/g, '');
+    const phonePart = (this.phone || '0000').slice(-4);
+    const random = Math.floor(100 + Math.random() * 900);
+    this.farmerId = `KM-F-${namePart}-${phonePart}-${random}`;
+  }
+
   if (!this.password || !this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(12);

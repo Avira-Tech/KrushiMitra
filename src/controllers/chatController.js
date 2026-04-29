@@ -331,6 +331,38 @@ const generateAgoraToken = async (req, res) => {
   }
 };
 
+/**
+ * Get an admin user for support chat (Now returns AI Support Bot by default)
+ * GET /api/v1/chats/help
+ */
+const getAdminForChat = async (req, res) => {
+  try {
+    const BOT_ID = '000000000000000000000000';
+    
+    // Check if the AI Bot user exists in DB
+    let bot = await User.findById(BOT_ID).select('name avatar role');
+    
+    if (!bot) {
+      // Create the bot user if it doesn't exist
+      bot = await User.create({
+        _id: BOT_ID,
+        name: 'KrushiMitra Assistant',
+        phone: '9999999999', // Dummy phone that passes [6-9]\d{9} regex
+        role: 'admin',
+        avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png',
+        status: 'active',
+        isActive: true,
+        isVerified: true
+      });
+    }
+    
+    return res.status(200).json({ success: true, data: bot });
+  } catch (error) {
+    logger.error('❌ Error fetching admin for chat:', error);
+    return res.status(500).json({ success: false, error: 'Failed to find support admin' });
+  }
+};
+
 module.exports = {
   startChat,
   getConversations,
@@ -340,5 +372,6 @@ module.exports = {
   getPresence,
   toggleReaction,
   generateAgoraToken,
+  getAdminForChat,
   getChats: getConversations,
 };

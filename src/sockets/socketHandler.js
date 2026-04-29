@@ -13,6 +13,10 @@
 
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
+const supportController = require('../controllers/supportController');
+const { decryptMessage, encryptMessage } = require('../utils/security');
+
+const BOT_ID = '000000000000000000000000'; // Reserved AI Bot ID
 
 // Lazy-loaded to avoid circular imports
 let Message, Conversation, User;
@@ -187,6 +191,64 @@ const initializeSocket = (io) => {
 
         // Emit to everyone in the conversation room
         io.to(`conversation:${conv._id}`).emit('message:new', payload);
+
+        // ─── AI BOT INTERCEPTION ──────────────────────────────────────────────
+        if (recipientId === BOT_ID) {
+          (async () => {
+            try {
+              // Decrypt the user's message for the AI
+              const plainContent = decryptMessage(content, conv._id);
+
+              // Get last few messages for context and decrypt them
+              const rawHistory = await Message.find({ conversationId: conv._id })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .lean();
+
+              const history = rawHistory.map(m => ({
+                ...m,
+                content: decryptMessage(m.content, conv._id)
+              })).reverse();
+
+              const aiReply = await supportController.getSupportResponse(plainContent, history);
+
+              // Encrypt the AI's reply for the frontend
+              const encryptedReply = encryptMessage(aiReply, conv._id);
+
+              const botMessage = await Message.create({
+                conversationId: conv._id,
+                sender: BOT_ID,
+                recipient: userId,
+                content: encryptedReply,
+                messageType: 'text',
+                isDelivered: true,
+                deliveredAt: new Date(),
+              });
+
+              const botPayload = {
+                _id: botMessage._id,
+                conversationId: conv._id,
+                sender: { _id: BOT_ID, name: 'KrushiMitra Assistant', avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png' },
+                recipient: userId,
+                content: botMessage.content,
+                messageType: 'text',
+                createdAt: botMessage.createdAt,
+                isRead: false,
+                isDelivered: true,
+              };
+
+              io.to(`conversation:${conv._id}`).emit('message:new', botPayload);
+              
+              // Update last message in conversation
+              await Conversation.findByIdAndUpdate(conv._id, {
+                lastMessage: botMessage._id,
+                lastMessageAt: new Date(),
+              });
+            } catch (aiErr) {
+              logger.error('AI Bot Response Error: ' + aiErr.message);
+            }
+          })();
+        }
 
         logger.info(`Message sent: ${message._id} in conversation ${conv._id}`);
       } catch (err) {

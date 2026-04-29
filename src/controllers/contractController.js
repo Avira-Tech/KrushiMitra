@@ -20,6 +20,8 @@ const NotificationService = require('../services/notificationService');
 const { parsePagination } = require('../utils/helpers');
 const { sendSuccess, sendError, sendNotFound, sendForbidden, sendPaginated } = require('../utils/apiResponse');
 const logger = require('../utils/logger');
+const { sendEmail } = require('../utils/emailService');
+const User = require('../models/User');
 
 // ─── GET /api/v1/contracts ────────────────────────────────────────────────────
 const getMyContracts = async (req, res) => {
@@ -390,6 +392,101 @@ const updateDeliveryLocation = async (req, res) => {
   }
 };
 
+// ─── POST /api/v1/contracts/:id/like ──────────────────────────────────────────
+const toggleLikeContract = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const contract = await Contract.findById(req.params.id);
+
+    if (!contract) return sendNotFound(res, 'Contract not found');
+
+    const index = contract.likedBy.indexOf(userId);
+    if (index === -1) {
+      contract.likedBy.push(userId);
+    } else {
+      contract.likedBy.splice(index, 1);
+    }
+
+    await contract.save();
+    return sendSuccess(res, { 
+      message: index === -1 ? 'Agreement liked' : 'Agreement unliked',
+      data: { isLiked: index === -1 } 
+    });
+  } catch (err) {
+    logger.error('toggleLikeContract error:', err);
+    return sendError(res, { message: 'Failed to toggle like', statusCode: 500 });
+  }
+};
+
+// ─── POST /api/v1/contracts/:id/email ─────────────────────────────────────────
+const sendContractEmail = async (req, res) => {
+  try {
+    const { pdfBase64 } = req.body;
+    const userId = req.user._id || req.user.id;
+    const contract = await Contract.findById(req.params.id)
+      .populate('farmer', 'name email')
+      .populate('buyer', 'name email');
+
+    if (!contract) return sendNotFound(res, 'Contract not found');
+
+    const user = await User.findById(userId);
+    if (!user || !user.email) {
+      return sendError(res, { message: 'User email not found. Cannot send email.', statusCode: 400 });
+    }
+
+    const htmlContent = `
+      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+        <div style="background: linear-gradient(135deg, #2E7D32, #1B5E20); padding: 30px; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 24px; letter-spacing: 1px;">Digital Agreement</h1>
+          <p style="color: rgba(255,255,255,0.8); margin-top: 5px; font-size: 14px;">KrushiMitra Trust-Engine™ Certified</p>
+        </div>
+        <div style="padding: 30px; line-height: 1.6; color: #444;">
+          <p style="font-size: 16px;">Hello <strong>${user.name}</strong>,</p>
+          <p>Your digital agreement for the trade of <strong>${contract.terms.cropName}</strong> has been successfully generated. Please find the official PDF copy attached to this email.</p>
+          
+          <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 14px; color: #666;">Agreement Details:</p>
+            <p style="margin: 5px 0; font-size: 15px;"><strong>ID:</strong> ${contract.contractId}</p>
+            <p style="margin: 5px 0; font-size: 15px;"><strong>Seller:</strong> ${contract.farmer.name}</p>
+            <p style="margin: 5px 0; font-size: 15px;"><strong>Buyer:</strong> ${contract.buyer.name}</p>
+          </div>
+
+          <p style="font-size: 14px; color: #777;">This is a legally binding digital instrument generated on KrushiMitra. You can also view and manage this agreement anytime within the app under the 'Contracts' section.</p>
+          
+          <div style="text-align: center; margin-top: 30px;">
+            <p style="font-size: 12px; color: #999;">&copy; 2026 KrushiMitra Verified Agri-Network. All rights reserved.</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const attachments = [];
+    if (pdfBase64) {
+      attachments.push({
+        filename: `Agreement_${contract.contractId}.pdf`,
+        content: pdfBase64,
+        encoding: 'base64',
+      });
+    }
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: `KrushiMitra Agreement: ${contract.contractId}`,
+        html: htmlContent,
+        attachments,
+      });
+      return sendSuccess(res, { message: `Email sent to ${user.email}` });
+    } catch (emailErr) {
+      logger.error('📧 SMTP Error:', emailErr);
+      return sendSuccess(res, { message: 'Agreement downloaded, but email failed (Check SMTP).' });
+    }
+  } catch (err) {
+    logger.error('sendContractEmail error:', err);
+    return sendError(res, { message: 'Failed to send email', statusCode: 500 });
+  }
+};
+
 module.exports = {
   getMyContracts,
   getContractById,
@@ -400,4 +497,6 @@ module.exports = {
   raiseDispute,
   trackDelivery,
   updateDeliveryLocation,
+  toggleLikeContract,
+  sendContractEmail,
 };
