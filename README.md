@@ -1,147 +1,160 @@
-# 🌾 KrushiMitra Backend API
+# 🌾 KrushiMitra Backend
 
-> **From Farm to Market, A Trustworthy Bridge**
+> **Empowering Farmers, Enabling Transparent Trade, and Revolutionizing the Agricultural Ecosystem.**
 
-Production-ready Node.js + Express + MongoDB backend for the KrushiMitra farmer-buyer marketplace.
-
----
-
-## 🚀 Quick Start
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# 3. Start development server
-npm run dev
-
-# 4. Run tests
-npm test
-```
+KrushiMitra is a production-ready, feature-rich backend system designed to bridge the gap between farmers and buyers. It facilitates transparent crop trading, secure escrow payments, AI-powered price intelligence, and seamless logistics integration.
 
 ---
 
-## 📁 Project Structure
+## 🌟 Vision & Mission
+Our mission is to eliminate middlemen and empower Indian farmers with direct market access, real-time data insights, and financial security through technology.
 
-```
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Core** | Node.js (v18+) | Runtime environment |
+| **Framework** | Express.js | Web application framework |
+| **Database** | MongoDB + Mongoose | NoSQL database for flexible data modeling |
+| **Caching/Queue** | Redis + BullMQ | Background jobs, rate limiting, and real-time state |
+| **Real-time** | Socket.io | Bi-directional communication for Chat & Notifications |
+| **AI/ML** | Google Gemini (GenAI) | Price recommendations & Quality analysis |
+| **Payments** | Stripe & Razorpay | Secure Escrow and Payout systems |
+| **Logistics** | Porter & Blackbuck | Delivery tracking and logistics integration |
+| **Auth** | JWT + Google OAuth | Secure multi-role authentication |
+| **Communications** | Twilio (OTP) & Firebase (FCM) | Notifications and identity verification |
+| **Storage** | Cloudinary | Cloud-based image and document storage |
+
+---
+
+## 📂 Project Architecture
+
+The backend follows a modular, service-oriented architecture designed for scalability and maintainability.
+
+```text
 backend/
 ├── src/
-│   ├── config/          # DB, Cloudinary, Stripe, Twilio, Firebase
-│   ├── models/          # Mongoose schemas
-│   ├── controllers/     # Business logic
-│   ├── routes/          # Express routers
-│   ├── middlewares/     # Auth, validation, error handling
-│   ├── services/        # External APIs (Weather, Mandi, AI, Porter)
-│   ├── sockets/         # Socket.io handlers
-│   ├── validators/      # Joi schemas
-│   ├── utils/           # JWT, helpers, logger, apiResponse
-│   └── tests/           # Jest + Supertest
-├── app.js             # Express app
-└── server.js          # HTTP + Socket.io server
+│   ├── config/          # Centralized configuration (DB, Cloudinary, Firebase, etc.)
+│   ├── controllers/     # Orchestrates business logic and handles HTTP requests
+│   ├── models/          # Mongoose schemas for data persistence
+│   ├── routes/          # Express route definitions (API v1)
+│   ├── middlewares/     # Auth, Role-based access, Rate limiting, Error handling
+│   ├── services/        # Third-party integrations (Weather, AI, Mandi, Payments)
+│   ├── sockets/         # Socket.io event handlers for real-time features
+│   ├── workers/         # Background job processors (BullMQ)
+│   ├── utils/           # Shared helpers (Logger, Response helpers, JWT)
+│   ├── validators/      # Joi/Express-validator schemas
+│   └── tests/           # Unit and Integration tests (Jest)
+├── app.js               # Express application configuration
+└── server.js            # Entry point: HTTP & Socket.io server initialization
 ```
 
 ---
 
-## 🔗 API Endpoints
+## ✨ Key Features
 
-### Base URL: `http://localhost:5000/api/v1`
+### 🔐 1. Identity & Access Management
+- **Multi-Role Support**: Tailored experiences for Farmers, Buyers, and Admins.
+- **Secure Onboarding**: OTP-based phone verification via Twilio and Google Social Login.
+- **KYC Verification**: Managed administrative flow for verifying farmer/buyer identities.
 
-| Module | Endpoints |
-|--------|----------|
-| **Auth** | `POST /auth/send-otp`, `POST /auth/verify-otp`, `POST /auth/register`, `POST /auth/google`, `POST /auth/refresh-token`, `POST /auth/logout`, `GET /auth/profile`, `PUT /auth/profile` |
-| **Crops** | `GET /crops`, `POST /crops`, `GET /crops/:id`, `PUT /crops/:id`, `DELETE /crops/:id`, `GET /crops/my/listings`, `GET /crops/ai-price`, `POST /crops/detect-quality` |
-| **Offers** | `GET /offers`, `POST /offers`, `GET /offers/:id`, `PATCH /offers/:id` |
-| **Contracts** | `GET /contracts`, `GET /contracts/:id`, `POST /contracts/:id/payment/initiate`, `POST /contracts/:id/payment/confirm`, `POST /contracts/:id/payment/release`, `POST /contracts/:id/dispute`, `GET /contracts/:id/delivery/track` |
-| **Chats** | `GET /chats`, `POST /chats`, `GET /chats/:chatId/messages`, `POST /chats/:chatId/messages` |
-| **Notifications** | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` |
-| **Weather** | `GET /weather?lat=&lng=`, `GET /weather/city/:city` |
-| **Mandi** | `GET /mandi`, `GET /mandi/:commodity/history`, `POST /mandi/sync` |
-| **Reviews** | `GET /reviews/user/:userId`, `POST /reviews` |
-| **Admin** | `GET /admin/dashboard`, `GET /admin/users`, `GET /admin/verifications`, `PATCH /admin/users/:userId/verify`, `PATCH /admin/users/:userId/ban`, `PATCH /admin/contracts/:contractId/dispute/resolve`, `POST /admin/broadcast` |
+### 🚜 2. Farmer Marketplace
+- **Crop Listings**: Rich crop listings with quality grading and high-res image support.
+- **AI Price Engine**: Intelligent price recommendations based on real-time Mandi (Agmarknet) trends and seasonality.
+- **Quality Detection**: AI-assisted crop quality assessment from uploaded images.
 
----
+### 💰 3. Secure Financial Ecosystem
+- **Escrow Payments**: Funds are held securely in escrow (Stripe/Razorpay) until delivery is confirmed.
+- **Payout Management**: Automated and manual payout systems for sellers.
+- **Dispute Resolution**: Integrated system for handling trade disputes via Admin intervention.
 
-## 🛡️ Security Features
+### 🚚 4. Logistics & Supply Chain
+- **Delivery Integration**: Integrated with Porter and Blackbuck for seamless transport booking.
+- **Real-time Tracking**: Live GPS tracking of crop shipments via ULIP and Porter APIs.
+- **Automated Workflows**: Background workers handle delivery state transitions and status sync.
 
-- ✅ JWT Access + Refresh Token rotation
-- ✅ OTP-based phone authentication (Twilio)
-- ✅ Google OAuth2
-- ✅ Role-based access control (Farmer/Buyer/Admin)
-- ✅ bcrypt password hashing
-- ✅ Rate limiting (express-rate-limit)
-- ✅ Input validation (Joi)
-- ✅ MongoDB injection prevention (mongo-sanitize)
-- ✅ Helmet security headers
-- ✅ CORS configuration
-- ✅ Stripe Escrow payments
-- ✅ File upload validation (Multer)
+### 💬 5. Real-time Communication
+- **Bilingual Chat**: Real-time chat between farmers and buyers with typing indicators.
+- **Instant Notifications**: Push notifications (FCM) and SMS/WhatsApp alerts (Twilio).
+- **Presence Tracking**: Online/Offline status indicators for better engagement.
+
+### 📊 6. Administrative Dashboard
+- **Analytics Hub**: Real-time stats on trade volume, user growth, and revenue.
+- **Broadcast System**: Send system-wide announcements to all users.
+- **Maintenance Mode**: Toggle platform accessibility for maintenance.
 
 ---
 
-## 💬 Socket.io Events
+## 🚀 Installation & Setup
 
-### Client → Server
-- `join_chat` - Join a chat room
-- `leave_chat` - Leave a chat room
-- `send_message` - Send a message
-- `typing` / `stop_typing` - Typing indicators
-- `message_read` - Mark message as read
-- `update_location` - Update GPS location
+### Prerequisites
+- Node.js (v18.x or higher)
+- MongoDB (Local or Atlas)
+- Redis Server (Local or Cloud)
 
-### Server → Client
-- `new_message` - New chat message
-- `message_notification` - Unread message alert
-- `new_offer` - New offer received
-- `offer_accepted` / `offer_rejected` / `counter_offer` - Offer updates
-- `payment_in_escrow` / `payment_released` - Payment events
-- `notification` - System notification
-- `user_online` / `user_offline` - Presence
+### Step-by-Step Setup
 
----
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/Avira-Tech/KrushiMitra.git
+   cd backend
+   ```
 
-## 🌐 External APIs
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-| Service | Purpose | Config Key |
-|---------|---------|------------|
-| **Twilio** | OTP + Voice/Video | `TWILIO_*` |
-| **Stripe** | Escrow payments | `STRIPE_*` |
-| **OpenWeather** | Weather insights | `OPENWEATHER_API_KEY` |
-| **AGMARKNET** | Mandi prices | `AGMARKNET_API_KEY` |
-| **Porter** | Logistics | `PORTER_API_KEY` |
-| **Cloudinary** | Image storage | `CLOUDINARY_*` |
-| **Firebase** | Push notifications | `FIREBASE_*` |
-| **Google OAuth** | Social login | `GOOGLE_CLIENT_*` |
+3. **Environment Configuration**:
+   Create a `.env` file from the example:
+   ```bash
+   cp .env.example .env
+   ```
+   *Fill in your API keys for Cloudinary, Stripe, Razorpay, Twilio, etc.*
 
----
+4. **Run the development server**:
+   ```bash
+   npm run dev
+   ```
 
-## 🚀 Deployment
-
-### Railway / Render
-```bash
-# Set environment variables in dashboard
-# Deploy with:
-git push origin main
-```
-
-### MongoDB Atlas
-```
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/krushimitra
-```
+5. **Run tests**:
+   ```bash
+   npm test
+   ```
 
 ---
 
-## 🧪 Testing
+## 🛡️ Security & Performance
 
-```bash
-npm test                    # Run all tests
-npm test -- --coverage      # With coverage report
-npm test auth.test.js       # Single file
-```
+- **Rate Limiting**: Protection against Brute-force and DDoS via Redis-backed rate limiters.
+- **Data Sanitization**: Prevents NoSQL injection (mongo-sanitize) and XSS attacks (xss-clean).
+- **Secure Headers**: Implements `helmet` for production-grade HTTP security headers.
+- **Logging**: Production-grade logging with `Winston`, including correlation IDs for request tracking.
+- **Compression**: Gzip compression enabled for faster payload delivery.
 
 ---
 
-*🌾 KrushiMitra - Empowering Indian Farmers*
+## 🔗 API Documentation Summary
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/v1/auth` | `POST` | User registration, login, and OTP verification |
+| `/api/v1/crops` | `GET/POST` | Marketplace management and AI price insights |
+| `/api/v1/offers` | `POST/PATCH`| Negotiating and accepting trade offers |
+| `/api/v1/payments`| `POST` | Payment initiation and Webhook processing |
+| `/api/v1/mandi` | `GET` | Real-time commodity prices across India |
+| `/api/v1/weather` | `GET` | Location-based weather alerts for farmers |
+
+---
+
+## 📈 Monitoring & Maintenance
+
+- **Health Checks**: Access `/health` for real-time status of DB, Redis, and external services.
+- **Logs**: Located in the `/logs` directory (rotating logs).
+- **Admin**: Comprehensive admin controllers for user and trade management.
+
+---
+
+*🌾 KrushiMitra - Bridging the distance from Farm to Fork.*
