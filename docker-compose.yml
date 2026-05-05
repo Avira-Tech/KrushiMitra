@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  krushimitra-backend:
+    build: .
+    ports:
+      - '5000:5000'
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongo:27017/krushimitra
+      - SMS_PROVIDER=aws_sns
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - mongo
+    networks:
+      - krushimitra
+
+  mongo:
+    image: mongo:6
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    networks:
+      - krushimitra
+
+volumes:
+  mongo_data:
+
+networks:
+  krushimitra:
+    driver: bridge
+
