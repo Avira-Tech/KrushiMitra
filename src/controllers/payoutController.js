@@ -28,22 +28,29 @@ const getPayoutSummary = async (req, res) => {
     const allContracts = await Contract.find({ farmer: farmerId });
     const totalRevenue = allContracts.reduce((sum, c) => sum + (c.terms?.totalAmount || 0), 0);
 
-    // 2. Identify which of these are already paid out
+    // 2. Identify which of these are already paid out or requested
     const paidOutIds = await Payout.find({
       farmer: farmerId,
-      status: { $in: ['processing', 'completed'] }
+      status: { $in: ['processing', 'completed', 'pending'] }
     }).distinct('payment');
 
     const withdrawnAmount = releasedPayments
       .filter(p => paidOutIds.map(id => id.toString()).includes(p._id.toString()))
       .reduce((sum, p) => sum + p.amount, 0);
 
-    const availableBalance = totalEarned - withdrawnAmount;
+    const availableBalance = Math.max(0, totalEarned - withdrawnAmount);
 
-    // 3. Last few payouts
+    // 3. Identify which of these are available for withdrawal (not yet requested/processed)
+    const availablePayments = await Payment.find({
+      payee: farmerId,
+      status: 'released',
+      _id: { $nin: paidOutIds }
+    }).populate('contract', 'terms.cropName');
+
+    // 4. Last few payouts
     const recentPayouts = await Payout.find({ farmer: farmerId })
       .sort({ createdAt: -1 })
-      .limit(5)
+      .limit(10)
       .populate('contract', 'terms.cropName');
 
     return sendSuccess(res, {
@@ -52,6 +59,7 @@ const getPayoutSummary = async (req, res) => {
         totalEarned,
         withdrawnAmount,
         availableBalance,
+        availablePayments,
         recentPayouts,
         hasBankDetails: !!(req.user.bankDetails?.accountNumber)
       }

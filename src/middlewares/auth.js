@@ -95,7 +95,7 @@ const protect = async (req, res, next) => {
     let user = await cache.get(cacheKey);
 
     if (!user) {
-      user = await User.findById(decoded.id).select('role status isBanned isActive isVerified').lean();
+      user = await User.findById(decoded.id).select('role status isBanned isActive isVerified bankDetails').lean();
       if (user) {
         await cache.set(cacheKey, user, 300); // Cache for 5 minutes
       }
@@ -119,6 +119,7 @@ const protect = async (req, res, next) => {
       phone:      decoded.phone,
       isVerified: user.isVerified,
       status:     user.status,
+      bankDetails: user.bankDetails,
       csrfToken:  decoded.csrfToken, // stateless CSRF check
     };
 

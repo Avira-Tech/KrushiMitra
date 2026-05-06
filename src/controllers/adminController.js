@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { cache } = require('../config/redis');
 const Crop = require('../models/Crop');
 const Contract = require('../models/Contract');
 const Payment = require('../models/Payment');
@@ -8,6 +9,7 @@ const { parsePagination, escapeRegExp } = require('../utils/helpers');
 const { sendSuccess, sendNotFound, sendError, sendPaginated } = require('../utils/apiResponse');
 const logger = require('../utils/logger');
 const AuditLog = require('../models/AuditLog');
+const Payout = require('../models/Payout');
 
 // ─── DASHBOARD ANALYTICS ────────────────────────────────────────────────────────────────────
 const getDashboard = async (req, res) => {
@@ -30,7 +32,7 @@ const getDashboard = async (req, res) => {
       },
     ]),
     Payment.aggregate([
-      { $match: { status: { $in: ['released', 'captured', 'in_escrow'] } } },
+      { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] } } },
       { $group: { _id: null, totalVolume: { $sum: '$amount' }, totalFees: { $sum: '$platformFee' }, count: { $sum: 1 } } },
     ]),
     User.find().sort({ createdAt: -1 }).limit(10).select('name phone role verificationStatus createdAt'),
@@ -53,6 +55,7 @@ const getDashboard = async (req, res) => {
       payments: paymentStats[0] || { totalVolume: 0, totalFees: 0, count: 0 },
       recentUsers,
       pendingVerifications: await User.countDocuments({ verificationStatus: 'pending' }),
+      pendingPayouts: await Payout.countDocuments({ status: 'pending' }),
       activeDisputes,
       performance: {
         disputeRate: disputeRate.toFixed(1),
@@ -105,6 +108,9 @@ const verifyUser = async (req, res) => {
       verifiedAt: isApproved ? new Date() : undefined,
       verifiedBy: req.user._id,
     });
+
+    // Invalidate user cache
+    await cache.del(`user:status:${userId}`);
 
     // Notify user
     NotificationService.notifyAccountVerified(userId, isApproved, note).catch(err => {
@@ -161,6 +167,9 @@ const banUser = async (req, res) => {
     isBanned: action === 'ban',
     banReason: action === 'ban' ? reason : undefined,
   });
+
+  // Invalidate user cache
+  await cache.del(`user:status:${userId}`);
 
   return sendSuccess(res, { message: `User ${action === 'ban' ? 'banned' : 'unbanned'} successfully` });
 };
@@ -411,7 +420,7 @@ const getRevenueAnalytics = async (req, res) => {
         { $group: { _id: null, totalVolume: { $sum: '$amount' }, platformFees: { $sum: '$platformFee' }, gst: { $sum: '$gstAmount' } } }
       ]),
       Payment.aggregate([
-        { $match: { status: { $in: ['released', 'captured', 'in_escrow'] } } },
+        { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] } } },
         {
           $group: {
             _id: '$payer',
@@ -443,7 +452,7 @@ const getRevenueAnalytics = async (req, res) => {
 
     // Monthly Trend for Chart
     const monthlyTrend = await Payment.aggregate([
-      { $match: { status: { $in: ['released', 'captured', 'in_escrow'] }, createdAt: { $gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1)) } } },
+      { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] }, createdAt: { $gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1)) } } },
       {
         $group: {
           _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } },
@@ -470,6 +479,61 @@ const getRevenueAnalytics = async (req, res) => {
   }
 };
 
+// ─── PAYOUT MANAGEMENT ───────────────────────────────────────────────────────────────────────
+const getPayouts = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const query = {};
+    if (status) query.status = status;
+
+    const payouts = await Payout.find(query)
+      .populate('farmer', 'name phone bankDetails')
+      .populate('contract', 'terms.cropName terms.totalAmount')
+      .populate('payment', 'amount releasedAt')
+      .sort({ createdAt: -1 });
+
+    return sendSuccess(res, { data: { payouts } });
+  } catch (err) {
+    logger.error('getPayouts error:', err);
+    return sendError(res, { message: 'Failed to fetch payouts', statusCode: 500 });
+  }
+};
+
+const updatePayoutStatus = async (req, res) => {
+  try {
+    const { payoutId } = req.params;
+    const { status, referenceNumber, notes } = req.body;
+
+    if (!['completed', 'failed', 'processing'].includes(status)) {
+      return sendError(res, { message: 'Invalid status', statusCode: 400 });
+    }
+
+    const payout = await Payout.findById(payoutId).populate('farmer');
+    if (!payout) return sendNotFound(res, 'Payout request not found');
+
+    payout.status = status;
+    if (referenceNumber) payout.referenceNumber = referenceNumber;
+    if (notes) payout.notes = notes;
+    if (status === 'completed') payout.processedAt = new Date();
+
+    await payout.save();
+
+    // Notify farmer
+    await NotificationService.create({
+      recipientId: payout.farmer._id,
+      title: 'Withdrawal Updated',
+      body: `Your withdrawal request for ₹${payout.amount} has been ${status}.`,
+      type: 'payment',
+      data: { payoutId: payout._id.toString() }
+    });
+
+    return sendSuccess(res, { message: `Payout marked as ${status}` });
+  } catch (err) {
+    logger.error('updatePayoutStatus error:', err);
+    return sendError(res, { message: 'Failed to update payout status', statusCode: 500 });
+  }
+};
+
 module.exports = {
   getDashboard,
   getPendingVerifications,
@@ -484,6 +548,8 @@ module.exports = {
   getAuditLogs,
   logAdminAction,
   updateContractTransport,
-  getRevenueAnalytics
+  getRevenueAnalytics,
+  getPayouts,
+  updatePayoutStatus
 };
 

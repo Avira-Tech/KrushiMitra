@@ -281,7 +281,7 @@ const transactionPaymentRelease = (contractId) =>
 
     // 1. Update Payment record
     const payment = await Payment.findOneAndUpdate(
-      { contract: contractId, status: { $in: ['in_escrow', 'paid', 'captured'] } },
+      { contract: contractId, status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] } },
       {
         status: 'released',
         releasedAt: new Date(),

@@ -437,8 +437,8 @@ const updateDeliveryLocation = async (req, res) => {
       return sendForbidden(res, 'Only the buyer can update the delivery location');
     }
 
-    if (contract.status !== 'active') {
-      return sendError(res, { message: 'Location can only be updated for active contracts before payment confirmed', statusCode: 400 });
+    if (!['active', 'confirmed'].includes(contract.status)) {
+      return sendError(res, { message: `Location can only be updated for active or confirmed contracts. Current status: ${contract.status}`, statusCode: 400 });
     }
 
     // Recalculate distance

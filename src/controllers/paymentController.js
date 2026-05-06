@@ -356,7 +356,10 @@ const releasePayment = async (req, res) => {
       return sendForbidden(res, 'Only the buyer can release escrowed funds');
     }
 
-    const payment = await Payment.findOne({ contract: contractId, status: 'in_escrow' });
+    const payment = await Payment.findOne({ 
+      contract: contractId, 
+      status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] } 
+    });
     if (!payment || !payment.stripe?.paymentIntentId) {
       return sendError(res, { message: 'No escrowed payment found to release', statusCode: 400 });
     }
@@ -399,6 +402,18 @@ const releasePayment = async (req, res) => {
     });
   } catch (err) {
     logger.error('releasePayment error:', err);
+    
+    // Attempt to revert status if it was stuck in processing
+    try {
+      const { contractId } = req.params;
+      await Payment.findOneAndUpdate(
+        { contract: contractId, status: 'processing_release' },
+        { status: 'in_escrow' }
+      );
+    } catch (revertErr) {
+      logger.error('Failed to revert payment status:', revertErr);
+    }
+
     return sendError(res, { message: err.message || 'Failed to release payment', statusCode: 500 });
   }
 };
@@ -419,7 +434,7 @@ const initiateRefund = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     if (!isBuyer && !isAdmin) return sendForbidden(res, 'Not authorized');
 
-    const payment = await Payment.findOne({ contract: contractId, status: { $in: ['captured', 'in_escrow'] } });
+    const payment = await Payment.findOne({ contract: contractId, status: { $in: ['captured', 'in_escrow', 'processing_release'] } });
     if (!payment?.stripe?.paymentIntentId) {
       return sendError(res, { message: 'No refundable Stripe payment found for this contract', statusCode: 404 });
     }

@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
-const { redis } = require('../config/redis');
+const { redis, cache } = require('../config/redis');
 const { sendOTP } = require('../config/sms');
 const { sendEmail } = require('../utils/emailService');
 const { generateOTP, sanitizePhone, isValidIndianPhone, hashString, generateFarmerId } = require('../utils/helpers');
@@ -604,6 +604,10 @@ const updateProfile = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    if (user) {
+      await cache.del(`user:status:${user._id}`);
+    }
+
     return sendSuccess(res, {
       message: updateData.email ? 'Profile updated. Please verify your new email.' : 'Profile updated',
       data: { user: user.toSafeObject() }
@@ -623,11 +627,6 @@ const getBankDetails = async (req, res) => {
 const updateBankDetails = async (req, res) => {
   const { accountNumber, bankName, ifscCode, accountHolderName, upiId } = req.body;
 
-  // Farmers can only add bank details if approved
-  if (req.user.role === 'farmer' && req.user.verificationStatus !== 'approved') {
-    return sendForbidden(res, 'Bank details can only be added after account approval');
-  }
-
   const user = await User.findByIdAndUpdate(
     req.user._id,
     {
@@ -637,6 +636,10 @@ const updateBankDetails = async (req, res) => {
     },
     { new: true, runValidators: true }
   );
+
+  if (user) {
+    await cache.del(`user:status:${user._id}`);
+  }
 
   return sendSuccess(res, {
     message: 'Bank details updated successfully',

@@ -6,7 +6,9 @@ const {
   getAllUsers, banUser, resolveDispute, sendBroadcast,
   getActivity, getDisputes, getGeoAnalytics, getAuditLogs,
   updateContractTransport,
-  getRevenueAnalytics
+  getRevenueAnalytics,
+  getPayouts,
+  updatePayoutStatus
 } = require('../controllers/adminController');
 const { getSettings, updateSetting } = require('../controllers/settingController');
 const {
@@ -51,6 +53,10 @@ router.get('/transports/:id', getTransport);
 router.post('/transports', createTransport);
 router.patch('/transports/:id', updateTransport);
 router.delete('/transports/:id', deleteTransport);
+
+// Payout Management
+router.get('/payouts', getPayouts);
+router.patch('/payouts/:payoutId', updatePayoutStatus);
 
 router.post('/broadcast', sendBroadcast);
 

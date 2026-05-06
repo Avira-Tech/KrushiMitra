@@ -69,6 +69,7 @@ const contractSchema = new mongoose.Schema(
           "awaiting_payment",
           "requires_action",   // Stripe 3DS
           "requires_capture",  // Stripe Authorized
+          "authorized",        // Stripe Succeeded/Authorized (synonym)
           "in_escrow",         // Stripe Succeeded (manual capture)
           "released",          // Stripe Captured (payout)
           "refunded",
