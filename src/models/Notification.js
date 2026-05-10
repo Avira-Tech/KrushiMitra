@@ -19,6 +19,7 @@ const notificationSchema = new mongoose.Schema(
         'delivery_scheduled', 'delivery_update', 'delivery_completed',
         'crop_listed', 'crop_sold', 'new_message',
         'account_verified', 'account_rejected', 'system', 'dispute_raised', 'dispute_resolved',
+        'transport_request', 'transport_confirmed', 'transport_rejected',
       ],
       required: true,
     },

@@ -72,10 +72,11 @@ exports.getAvailableJobs = async (req, res) => {
   try {
     // Jobs that are confirmed but don't have an assigned partner yet, OR assigned to this partner but not yet scheduled
     const jobs = await Contract.find({
-      status: 'confirmed',
+      status: { $in: ['active', 'confirmed'] },
       'transport.provider': 'local',
       $or: [
           { 'transport.logisticsPartner': { $exists: false } },
+          { 'transport.logisticsPartner': null },
           { 'transport.logisticsPartner': req.user._id, 'delivery.status': 'pending' }
       ]
     }).populate('farmer buyer crop');
