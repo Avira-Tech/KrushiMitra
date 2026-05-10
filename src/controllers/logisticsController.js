@@ -133,13 +133,13 @@ exports.acceptJob = async (req, res) => {
 
     // Notify Farmer of Pickup OTP
     if (fullContract.farmer.phone) {
-        await sendOTP(fullContract.farmer.phone, pickupOtp);
+        await sendOTP(`+91${fullContract.farmer.phone}`, pickupOtp);
     }
     await NotificationService.notifyOtp(fullContract, fullContract.farmer._id, 'pickup', pickupOtp);
 
     // Notify Buyer of Delivery OTP (optional at this stage, but good for visibility)
     if (fullContract.buyer.phone) {
-        await sendOTP(fullContract.buyer.phone, deliveryOtp);
+        await sendOTP(`+91${fullContract.buyer.phone}`, deliveryOtp);
     }
     await NotificationService.notifyOtp(fullContract, fullContract.buyer._id, 'delivery', deliveryOtp);
 
@@ -169,7 +169,7 @@ exports.resendOtp = async (req, res) => {
     if (!otp) return sendError(res, { message: 'No OTP generated for this contract yet', statusCode: 400 });
 
     if (recipient.phone) {
-      await sendOTP(recipient.phone, otp);
+      await sendOTP(`+91${recipient.phone}`, otp);
     }
     await NotificationService.notifyOtp(contract, recipient._id, type, otp);
 
