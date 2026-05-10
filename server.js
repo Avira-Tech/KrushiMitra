@@ -44,7 +44,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin:      NODE_ENV === 'production'
-      ? (process.env.CLIENT_URL ?? '').split(',').filter(Boolean)
+      ? '*' // Allow all origins in production for mobile app compatibility
       : true,                            // ← allow ALL in dev
     credentials: true,
     methods:     ['GET', 'POST'],

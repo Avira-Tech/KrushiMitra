@@ -107,6 +107,8 @@ const makeOffer = async (req, res) => {
       deliveryDate,
       paymentTerms,
       message,
+      selectedTruck,
+      transportCost,
     } = req.body;
 
     const resolvedPrice = parseFloat(pricePerKg || pricePerUnit);
@@ -144,6 +146,8 @@ const makeOffer = async (req, res) => {
       deliveryDate: deliveryDate ? new Date(deliveryDate) : undefined,
       paymentTerms: paymentTerms || 'KrushiMitra Secure Escrow',
       message: message ? sanitizer.sanitizeString(message) : undefined,
+      selectedTruck,
+      transportCost: transportCost || 0,
       status: 'pending',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       negotiationHistory: [{
@@ -387,6 +391,7 @@ const counterOffer = async (req, res) => {
       by: isFarmer ? 'farmer' : 'buyer',
       createdAt: new Date(),
     };
+    offer.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Reset expiry to 7 days
     offer.negotiationHistory.push({
       by: isFarmer ? 'farmer' : 'buyer', action: 'counter',
       price: counterPrice, message: message, timestamp: new Date(),

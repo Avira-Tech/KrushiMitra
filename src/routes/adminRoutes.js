@@ -8,7 +8,9 @@ const {
   updateContractTransport,
   getRevenueAnalytics,
   getPayouts,
-  updatePayoutStatus
+  updatePayoutStatus,
+  getPendingTrucks,
+  approveTruck
 } = require('../controllers/adminController');
 const { getSettings, updateSetting } = require('../controllers/settingController');
 const {
@@ -57,6 +59,10 @@ router.delete('/transports/:id', deleteTransport);
 // Payout Management
 router.get('/payouts', getPayouts);
 router.patch('/payouts/:payoutId', updatePayoutStatus);
+
+// Truck Management
+router.get('/trucks/pending', getPendingTrucks);
+router.patch('/trucks/:truckId/verify', approveTruck);
 
 router.post('/broadcast', sendBroadcast);
 

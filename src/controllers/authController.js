@@ -8,6 +8,7 @@ const { sendSuccess, sendCreated, sendError, sendUnauthorized, sendForbidden, se
 const NotificationService = require('../services/notificationService');
 const { uploadBufferToCloudinary } = require('../config/cloudinary');
 const logger = require('../utils/logger');
+const verificationService = require('../services/verificationService');
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────────────────
 
@@ -647,6 +648,62 @@ const updateBankDetails = async (req, res) => {
   });
 };
 
+// ─── VERIFICATION ────────────────────────────────────────────────────────────────────────
+const verifyAadhaar = async (req, res) => {
+  const { aadhaarNumber } = req.body;
+  if (!aadhaarNumber) return sendValidationError(res, [{ field: 'aadhaarNumber', message: 'Aadhaar number is required' }]);
+
+  const isValid = verificationService.validateAadhaarFormat(aadhaarNumber);
+  
+  if (!isValid) {
+    return sendError(res, { message: 'Invalid Aadhaar number format or checksum', statusCode: 400 });
+  }
+
+  return sendSuccess(res, {
+    message: 'Aadhaar format is valid',
+    data: { isValid: true }
+  });
+};
+
+const verifyGST = async (req, res) => {
+  const { gstNumber } = req.body;
+  if (!gstNumber) return sendValidationError(res, [{ field: 'gstNumber', message: 'GST number is required' }]);
+
+  try {
+    const result = await verificationService.verifyGSTWithRazorpay(gstNumber);
+    return sendSuccess(res, {
+      message: 'GST verification successful',
+      data: result
+    });
+  } catch (error) {
+    return sendError(res, { message: error.message, statusCode: 400 });
+  }
+};
+
+const verifyBankDetails = async (req, res) => {
+  const { accountNumber, ifscCode, accountHolderName } = req.body;
+  if (!accountNumber || !ifscCode) {
+    return sendValidationError(res, [
+      { field: 'accountNumber', message: 'Account number is required' },
+      { field: 'ifscCode', message: 'IFSC code is required' }
+    ]);
+  }
+
+  try {
+    const result = await verificationService.verifyBankAccount(
+      accountNumber, 
+      ifscCode, 
+      accountHolderName || req.user.name
+    );
+    return sendSuccess(res, {
+      message: 'Bank account verification successful',
+      data: result
+    });
+  } catch (error) {
+    return sendError(res, { message: error.message, statusCode: 400 });
+  }
+};
+
 module.exports = {
   checkUser,
   checkAvailability,
@@ -662,4 +719,7 @@ module.exports = {
   updateProfile,
   getBankDetails,
   updateBankDetails,
+  verifyAadhaar,
+  verifyGST,
+  verifyBankDetails,
 };

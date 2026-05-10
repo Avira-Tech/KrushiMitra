@@ -11,52 +11,72 @@ class MandiService {
    * Fetch and cache mandi prices from AGMARKNET
    */
   static async fetchAndCachePrices(state = 'Gujarat', limit = 100) {
-  try {
-    const response = await axios.get(`${AGMARKNET_BASE}/${AGMARKNET_RESOURCE_ID}`, {
-      params: {
-        'api-key': API_KEY,
-        format: 'json',
-        limit,
-        // The API uses filters like "filters[state]=Gujarat"
-        'filters[state]': state, 
-      },
-      timeout: 15000,
-    });
+    try {
+      const response = await axios.get(`${AGMARKNET_BASE}/${AGMARKNET_RESOURCE_ID}`, {
+        params: {
+          'api-key': API_KEY,
+          format: 'json',
+          limit,
+          'filters[state]': state, 
+        },
+        timeout: 15000,
+      });
 
-    const records = response.data?.records || [];
-    const bulkOps = records.map((record) => ({
-      updateOne: {
-        filter: {
-          commodity: record.commodity,
-          market: record.market,
-          // Use arrival_date from API
-          priceDate: new Date(record.arrival_date), 
-        },
-        update: {
-          $set: {
-            commodity: record.commodity,
-            crop: record.commodity, // Alias for model
-            variety: record.variety,
-            market: record.market,
-            mandi: record.market, // Alias for model
-            state: record.state,
-            district: record.district,
-            // Ensure numbers are parsed correctly from strings
-            minPrice: parseFloat(record.min_price) || 0,
-            maxPrice: parseFloat(record.max_price) || 0,
-            modalPrice: parseFloat(record.modal_price) || 0,
-            unit: 'Quintal',
-            priceDate: new Date(record.arrival_date),
-            source: 'AGMARKNET',
+      const records = response.data?.records || [];
+      
+      // Filter out invalid records (e.g. schema mismatches)
+      const validRecords = records.filter(r => {
+        const hasCommodity = !!(r.Commodity || r.commodity || r.Crop || r.crop);
+        const hasPrice = !!(r.Modal_Price || r.modal_price || r.Modal_x0020_Price || r.Max_Price || r.Min_Price);
+        return hasCommodity && hasPrice;
+      });
+
+      if (validRecords.length === 0 && records.length > 0) {
+        logger.warn(`MandiService: Received ${records.length} records but 0 passed validation for ${state}`);
+        return { success: false, error: 'Source data schema mismatch' };
+      }
+
+      const bulkOps = validRecords.map((record) => ({
+        updateOne: {
+          filter: {
+            commodity: record.Commodity || record.commodity || 'Unknown',
+            market:    record.Market    || record.market    || 'Unknown',
+            priceDate: (() => {
+              const raw = record.Arrival_Date || record.arrival_date;
+              if (!raw) return new Date();
+              const d = new Date(raw);
+              return isNaN(d.getTime()) ? new Date() : d;
+            })(),
           },
+          update: {
+            $set: {
+              commodity:  record.Commodity  || record.commodity  || '',
+              crop:       record.Commodity  || record.commodity  || '',
+              variety:    record.Variety    || record.variety     || '',
+              market:     record.Market     || record.market      || '',
+              mandi:      record.Market     || record.market      || '',
+              state:      record.State      || record.state       || record.state_name || '',
+              district:   record.District   || record.district    || record.district_name || '',
+              minPrice:   parseFloat(record.Min_x0020_Price   || record.Min_Price   || record.min_price || 0),
+              maxPrice:   parseFloat(record.Max_x0020_Price   || record.Max_Price   || record.max_price || 0),
+              modalPrice: parseFloat(record.Modal_x0020_Price || record.Modal_Price || record.modal_price || 0),
+              unit:       record.Unit || record.unit || 'Quintal',
+              priceDate:  (() => {
+                const raw = record.Arrival_Date || record.arrival_date;
+                if (!raw) return new Date();
+                const d = new Date(raw);
+                return isNaN(d.getTime()) ? new Date() : d;
+              })(),
+              source:     'AGMARKNET',
+            },
+          },
+          upsert: true,
         },
-        upsert: true,
-      },
-    }));
+      }));
 
       if (bulkOps.length > 0) {
         await MandiPrice.bulkWrite(bulkOps);
-        logger.info(`Cached ${bulkOps.length} mandi price records`);
+        logger.info(`✅ MandiService: Cached ${bulkOps.length} valid records for ${state}`);
       }
 
       return { success: true, count: bulkOps.length };

@@ -56,6 +56,9 @@ const offerSchema = new mongoose.Schema(
     },
     deliveryDate: { type: Date },
     paymentTerms: { type: String, trim: true, default: 'KrushiMitra Secure Escrow' },
+    selectedTruck: { type: mongoose.Schema.Types.ObjectId, ref: 'Truck' },
+    transportCost: { type: Number, default: 0 },
+    distanceKm: { type: Number, default: 0 },
 
     // ─── Status flow: pending → accepted | rejected | countered | contracted ──
     status: {

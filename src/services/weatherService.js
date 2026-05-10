@@ -16,9 +16,24 @@ const logger = require('../utils/logger');
 const BASE_URL = 'http://api.weatherstack.com';
 const API_KEY  = process.env.WEATHERSTACK_API_KEY || '8023768e3ec3bbbccc6b3df1eec6ccc7';
 
+// In-memory cache for weather data
+const weatherCache = new Map();
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 class WeatherService {
   // ─── Get weather by lat/lng ─────────────────────────────────────────────────
   static async getWeatherByCoords(lat, lng) {
+    const areaKey = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+    const now = Date.now();
+
+    if (weatherCache.has(areaKey)) {
+      const cached = weatherCache.get(areaKey);
+      if (now - cached.timestamp < CACHE_TTL) {
+        logger.info(`ℹ️ Weather: Using cache for area ${areaKey}`);
+        return cached.data;
+      }
+    }
+
     try {
       const response = await axios.get(`${BASE_URL}/current`, {
         params: {
@@ -31,13 +46,15 @@ class WeatherService {
 
       if (response.data?.error) {
         logger.warn(`Weatherstack error: ${JSON.stringify(response.data.error)}`);
+        // If rate limited, don't cache mock data but return it
         return WeatherService.getMockWeatherData(null, null, `${lat},${lng}`);
       }
 
-      return WeatherService.format(response.data);
+      const formatted = WeatherService.format(response.data);
+      weatherCache.set(areaKey, { timestamp: now, data: formatted });
+      return formatted;
     } catch (err) {
       const msg = err?.message || err?.response?.data?.error?.info || String(err);
-      // 429 = Weatherstack free-plan rate limit — log as warning, not error
       if (err?.response?.status === 429 || msg.includes('429')) {
         logger.warn('Weatherstack rate limit (429) — returning mock weather data');
       } else {
@@ -49,6 +66,17 @@ class WeatherService {
 
   // ─── Get weather by city name ───────────────────────────────────────────────
   static async getWeatherByCity(city) {
+    const now = Date.now();
+    const cityKey = `city:${city.toLowerCase().trim()}`;
+
+    if (weatherCache.has(cityKey)) {
+      const cached = weatherCache.get(cityKey);
+      if (now - cached.timestamp < CACHE_TTL) {
+        logger.info(`ℹ️ Weather: Using cache for city ${city}`);
+        return cached.data;
+      }
+    }
+
     try {
       const response = await axios.get(`${BASE_URL}/current`, {
         params: {
@@ -64,7 +92,9 @@ class WeatherService {
         return WeatherService.getMockWeatherData(null, null, city);
       }
 
-      return WeatherService.format(response.data);
+      const formatted = WeatherService.format(response.data);
+      weatherCache.set(cityKey, { timestamp: now, data: formatted });
+      return formatted;
     } catch (err) {
       const msg = err?.message || err?.response?.data?.error?.info || String(err);
       if (err?.response?.status === 429 || msg.includes('429')) {

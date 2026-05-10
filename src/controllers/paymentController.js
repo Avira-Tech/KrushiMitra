@@ -85,7 +85,7 @@ const createStripePaymentIntent = async (req, res) => {
     const totalAmount = contract.terms?.totalAmount || 0;
     const totalUnits = Math.round(totalAmount * 100);
     const platformUnits = Math.round(totalUnits * commissionRate);
-    const gstUnits = Math.round(platformUnits * 0.18);
+    const gstUnits = 0; // Removed as per farmer rules
     const grandTotalUnits = totalUnits + platformUnits + gstUnits;
 
     const platformFee = platformUnits / 100;
@@ -149,7 +149,7 @@ const createStripePaymentIntent = async (req, res) => {
       amount: grandTotal,
       baseAmount: totalAmount,
       platformFee,
-      gstOnFee,
+      gstAmount: gstOnFee,
       type: 'stripe',
       status: 'initiated',
       receiptId,

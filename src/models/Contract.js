@@ -38,13 +38,14 @@ const contractSchema = new mongoose.Schema(
       pricePerKg: { type: Number, required: true },
       totalAmount: { type: Number, required: true },
       platformFee: { type: Number, default: 0 },
+      logisticsFee: { type: Number, default: 0 },
       netAmount: { type: Number }, // totalAmount - platformFee
       deliveryDate: { type: Date, required: true },
       deliveryAddress: String,
-      deliveryServiceType: { 
-        type: String, 
-        enum: ['local', 'village_to_city', 'intercity_porter'], 
-        default: 'local' 
+      deliveryServiceType: {
+        type: String,
+        enum: ['local', 'village_to_city', 'intercity_porter'],
+        default: 'local'
       },
       paymentTerms: {
         type: String,
@@ -142,6 +143,15 @@ const contractSchema = new mongoose.Schema(
     // Transport Details (New)
     transport: {
       provider: { type: String, enum: ['porter', 'blackbuck', 'local', 'none'], default: 'none' },
+      status: { 
+        type: String, 
+        enum: ['none', 'requested', 'confirmed', 'rejected'], 
+        default: 'none' 
+      },
+      logisticsPartner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      truck: { type: mongoose.Schema.Types.ObjectId, ref: 'Truck' },
+      pickupOtp: { type: String },
+      deliveryOtp: { type: String },
       distanceKm: { type: Number, default: 0 },
       estimatedCost: { type: Number, default: 0 },
       ulipRegistered: { type: Boolean, default: false },
@@ -176,11 +186,13 @@ contractSchema.pre("save", function (next) {
   if (this.isNew) {
     // 2% platform fee calculated in integer units then rounded to 2 decimals
     const totalCents = Math.round(this.terms.totalAmount * 100);
-    const feeCents   = Math.round(totalCents * 0.02);
+    const feeCents = Math.round(totalCents * 0.02);
     this.terms.platformFee = feeCents / 100;
-    this.terms.netAmount   = (totalCents - feeCents) / 100;
+    this.terms.netAmount = (totalCents - feeCents) / 100;
   }
   next();
 });
+
+module.exports = mongoose.model("Contract", contractSchema);
 
 module.exports = mongoose.model("Contract", contractSchema);

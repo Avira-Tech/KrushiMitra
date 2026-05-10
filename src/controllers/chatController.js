@@ -419,7 +419,8 @@ const getChatContext = async (req, res) => {
           cropName: contract.terms?.cropName || 'Produce',
           contractId: contract.contractId,
           farmerId: contract.farmer,
-          buyerId: contract.buyer
+          buyerId: contract.buyer,
+          logisticsPartnerId: contract.transport?.logisticsPartner
         }
       });
     }
@@ -431,8 +432,10 @@ const getChatContext = async (req, res) => {
         { farmer: userId, buyer: otherId },
         { farmer: otherId, buyer: userId }
       ],
-      status: 'pending'
-    }).populate('crop', 'name').sort({ createdAt: -1 });
+      status: { $in: ['pending', 'accepted', 'countered'] }
+    }).populate('crop', 'name')
+      .populate({ path: 'selectedTruck', select: 'owner' })
+      .sort({ createdAt: -1 });
 
     if (offer) {
       return res.status(200).json({
@@ -443,7 +446,8 @@ const getChatContext = async (req, res) => {
           status: offer.status,
           amount: offer.amount,
           cropName: offer.crop?.name || 'Produce',
-          senderId: offer.farmer // Offers are always sent by farmers in this logic? Wait.
+          senderId: offer.farmer,
+          logisticsPartnerId: offer.selectedTruck?.owner
         }
       });
     }

@@ -46,6 +46,7 @@ const mandiRoutes = require('./src/routes/mandiRoutes');
 const reviewRoutes = require('./src/routes/reviewRoutes');
 const cmsRoutes = require('./src/routes/cmsRoutes');
 const payoutRoutes = require('./src/routes/payoutRoutes');
+const logisticsRoutes = require('./src/routes/logisticsRoutes');
 const paymentPageRoute = require('./src/routes/paymentPage');
 
 const app = express();
@@ -76,16 +77,16 @@ app.use(cors({
   origin: (origin, callback) => {
     const raw = process.env.ALLOWED_ORIGINS ?? '';
     const allowedOrigins = raw.split(',').map((o) => o.trim()).filter(Boolean);
-    
+
     // 1. Allow if in whitelist
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    
+
     // 2. Allow if origin is missing (e.g., Mobile App, Postman, Server-to-Server)
     if (!origin) return callback(null, true);
-    
+
     // 3. Allow if in development mode
     if (process.env.NODE_ENV === 'development') return callback(null, true);
-    
+
     // Otherwise, block
     logger.warn(`CORS blocked request from unauthorized origin: ${origin}`);
     callback(new Error(`CORS policy: ${origin} not allowed`));
@@ -178,6 +179,7 @@ app.use(`${API_PREFIX}/mandi`, mandiRoutes);
 app.use(`${API_PREFIX}/reviews`, reviewRoutes);
 app.use(`${API_PREFIX}/cms`, cmsRoutes);
 app.use(`${API_PREFIX}/payouts`, payoutRoutes);
+app.use(`${API_PREFIX}/logistics`, logisticsRoutes);
 app.use(`${API_PREFIX}/`, paymentPageRoute);
 
 // ─── API index ────────────────────────────────────────────────────────────────

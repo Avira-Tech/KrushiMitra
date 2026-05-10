@@ -10,7 +10,8 @@ const {
 const {
   checkUser, sendOtp, sendEmailOtp, verifyOtp, verifyEmailOtp, register, googleAuth,
   refreshToken, logout, getProfile, updateProfile,
-  getBankDetails, updateBankDetails, checkAvailability
+  getBankDetails, updateBankDetails, checkAvailability,
+  verifyAadhaar, verifyGST, verifyBankDetails
 } = require('../controllers/authController');
 const { uploadSingle } = require('../middlewares/upload');
 
@@ -34,5 +35,10 @@ router.put('/profile', uploadSingle('avatar'), validate(updateProfileSchema), up
 // Bank details
 router.get('/bank-details', getBankDetails);
 router.put('/bank-details', updateBankDetails);
+
+// Verification
+router.post('/verify-aadhaar', verifyAadhaar);
+router.post('/verify-gst', verifyGST);
+router.post('/verify-bank', verifyBankDetails);
 
 module.exports = router;

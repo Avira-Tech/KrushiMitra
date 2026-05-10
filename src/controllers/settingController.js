@@ -12,7 +12,7 @@ const updateSetting = async (req, res) => {
   let { key, value, description } = req.body;
   
   // Ensure numeric keys are stored as numbers
-  if (key.includes('rate') || key.includes('limit') || key.includes('minimum') || key.includes('payout') || key.includes('gst')) {
+  if (key.includes('rate') || key.includes('limit') || key.includes('minimum') || key.includes('payout') || key.includes('gst') || key === 'app_rate') {
     value = parseFloat(value);
     if (isNaN(value)) return sendError(res, { message: 'Value must be a number', statusCode: 400 });
   }

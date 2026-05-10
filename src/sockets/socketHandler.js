@@ -71,7 +71,7 @@ const initializeSocket = (io) => {
         const count = await redis.hincrby(PRESENCE_KEY, userId, 1);
         if (count === 1) {
           // Broadcast online only on the first connection
-          io.to(`role:farmer`).to(`role:buyer`).emit('presence:online', { userId, timestamp: new Date() });
+          io.to(`role:farmer`).to(`role:buyer`).to(`role:logistics`).emit('presence:online', { userId, timestamp: new Date() });
         }
       } catch (err) {
         logger.error('Error tracking presence: ' + err.message);
@@ -359,7 +359,7 @@ const initializeSocket = (io) => {
         if (count <= 0) {
           await redis.hdel(PRESENCE_KEY, userId);
           // Broadcast offline only when all connections across all servers closed
-          io.to(`role:farmer`).to(`role:buyer`).emit('presence:offline', { userId, timestamp: new Date() });
+          io.to(`role:farmer`).to(`role:buyer`).to(`role:logistics`).emit('presence:offline', { userId, timestamp: new Date() });
         }
       } catch (err) {
         logger.error('Socket disconnect tracking error: ' + err.message);

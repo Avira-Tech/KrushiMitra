@@ -33,34 +33,57 @@ const fetchAndSyncFromAPI = async ({ commodity, state, district, limit = 100 } =
   const response = await axios.get(AGMARKNET_URL, { params, timeout: 15_000 });
   const records  = response.data?.records || [];
 
+  if (records.length > 0) {
+    logger.debug(`🔍 Mandi RAW record keys: ${Object.keys(records[0]).join(', ')}`);
+  }
+
   if (!records.length) return [];
 
+  // Filter out obviously malformed records before upserting
+  // A valid Agmarknet record MUST have a Commodity and some price info
+  const validRecords = records.filter(r => {
+    const hasCommodity = !!(r.Commodity || r.commodity || r.Crop || r.crop);
+    const hasPrice = !!(r.Modal_Price || r.modal_price || r.Modal_x0020_Price || r.Max_Price || r.Min_Price);
+    return hasCommodity && hasPrice;
+  });
+
+  if (validRecords.length === 0 && records.length > 0) {
+    logger.warn(`⚠️ Mandi: Received ${records.length} records but 0 passed validation. Possible schema mismatch at source.`);
+    return []; // Return empty so getPrices knows the live fetch was essentially a failure
+  }
+
   // Upsert into MandiPrice collection for caching
-  const bulkOps = records.map((r) => ({
+  const bulkOps = validRecords.map((r) => ({
     updateOne: {
       filter: {
-        commodity: r.Commodity || r.commodity,
-        market:    r.Market    || r.market,
-        priceDate: new Date(r.Arrival_Date || r.arrival_date || Date.now()),
+        commodity: r.Commodity || r.commodity || 'Unknown',
+        market:    r.Market    || r.market    || 'Unknown',
+        priceDate: (() => {
+          const raw = r.Arrival_Date || r.arrival_date;
+          if (!raw) return new Date();
+          const d = new Date(raw);
+          return isNaN(d.getTime()) ? new Date() : d;
+        })(),
       },
       update: {
         $set: {
           commodity:  r.Commodity  || r.commodity  || '',
+          crop:       r.Commodity  || r.commodity  || '',
           variety:    r.Variety    || r.variety     || '',
           market:     r.Market     || r.market      || '',
-          state:      r.State      || r.state       || '',
-          district:   r.District   || r.district    || '',
-          minPrice:   parseFloat(r.Min_x0020_Price || r.min_price || 0),
-          maxPrice:   parseFloat(r.Max_x0020_Price || r.max_price || 0),
-          modalPrice: parseFloat(r.Modal_x0020_Price || r.modal_price || 0),
-          unit:       'Quintal',
-          // Guard: new Date(undefined) = Invalid Date which fails Mongoose Date cast
-      priceDate:  (() => {
-        const raw = r.Arrival_Date || r.arrival_date;
-        if (!raw) return new Date();
-        const d = new Date(raw);
-        return isNaN(d.getTime()) ? new Date() : d;
-      })(),
+          mandi:      r.Market     || r.market      || '',
+          state:      r.State      || r.state       || r.state_name || '',
+          district:   r.District   || r.district    || r.district_name || '',
+          minPrice:   parseFloat(r.Min_x0020_Price   || r.Min_Price   || r.min_price || 0),
+          maxPrice:   parseFloat(r.Max_x0020_Price   || r.Max_Price   || r.max_price || 0),
+          modalPrice: parseFloat(r.Modal_x0020_Price || r.Modal_Price || r.modal_price || 0),
+          unit:       r.Unit || r.unit || 'Quintal',
+          priceDate:  (() => {
+            const raw = r.Arrival_Date || r.arrival_date;
+            if (!raw) return new Date();
+            const d = new Date(raw);
+            return isNaN(d.getTime()) ? new Date() : d;
+          })(),
           source:     'AGMARKNET',
         },
       },
@@ -68,8 +91,11 @@ const fetchAndSyncFromAPI = async ({ commodity, state, district, limit = 100 } =
     },
   }));
 
-  if (bulkOps.length) await MandiPrice.bulkWrite(bulkOps);
-  return records;
+  if (bulkOps.length) {
+    await MandiPrice.bulkWrite(bulkOps);
+    logger.info(`✅ Mandi: Synced ${bulkOps.length} valid records to cache.`);
+  }
+  return validRecords;
 };
 
 /**
@@ -80,33 +106,45 @@ const normalize = (r, isDbRecord = false) => {
   if (isDbRecord) {
     return {
       id:         r._id,
-      commodity:  r.commodity,
-      variety:    r.variety   || '',
-      market:     r.market,
-      state:      r.state,
-      district:   r.district  || '',
-      minPrice:   r.minPrice,
-      maxPrice:   r.maxPrice,
-      modalPrice: r.modalPrice,
-      unit:       r.unit || 'Quintal',
+      commodity:  r.commodity  || 'Unknown',
+      variety:    r.variety    || '',
+      market:     r.market     || 'Unknown',
+      mandi:      r.mandi      || r.market || 'Unknown',
+      state:      r.state      || '',
+      district:   r.district   || '',
+      minPrice:   r.minPrice   || 0,
+      maxPrice:   r.maxPrice   || 0,
+      modalPrice: r.modalPrice || 0,
+      unit:       r.unit       || 'Quintal',
       priceDate:  r.priceDate,
-      source:     r.source || 'DB',
+      source:     r.source     || 'DB',
     };
   }
+
+  // Raw API records have varying capitalizations and key names
+  const commodity = r.Commodity || r.commodity || r.Crop || r.crop || 'Unknown';
+  const market    = r.Market    || r.market    || r.Mandi || r.mandi || 'Unknown';
+  const modal     = parseFloat(r.Modal_x0020_Price || r.Modal_Price || r.modal_price || 0);
+
   return {
-    commodity:  r.Commodity  || r.commodity  || '',
+    commodity,
     variety:    r.Variety    || r.variety     || '',
-    market:     r.Market     || r.market      || '',
-    state:      r.State      || r.state       || '',
-    district:   r.District   || r.district    || '',
-    minPrice:   parseFloat(r.Min_x0020_Price  || r.min_price  || 0),
-    maxPrice:   parseFloat(r.Max_x0020_Price  || r.max_price  || 0),
-    modalPrice: parseFloat(r.Modal_x0020_Price|| r.modal_price|| 0),
-    unit:       'Quintal',
+    market,
+    mandi:      market,
+    state:      r.State      || r.state       || r.state_name    || '',
+    district:   r.District   || r.district    || r.district_name || '',
+    minPrice:   parseFloat(r.Min_x0020_Price || r.Min_Price || r.min_price || 0),
+    maxPrice:   parseFloat(r.Max_x0020_Price || r.Max_Price || r.max_price || 0),
+    modalPrice: modal,
+    unit:       r.Unit || r.unit || 'Quintal',
     priceDate:  r.Arrival_Date || r.arrival_date || new Date().toISOString(),
     source:     'AGMARKNET',
   };
 };
+
+// Global tracker for throttle
+let lastSuccessfulFetch = 0;
+const FETCH_COOLDOWN = 60 * 60 * 1000; // 1 hour
 
 // ─── GET /api/v1/mandi/prices ─────────────────────────────────────────────────
 const getPrices = async (req, res) => {
@@ -120,73 +158,110 @@ const getPrices = async (req, res) => {
       useCache,
     } = req.query;
 
-    // Try live API first
-    let liveData = [];
-    let apiError  = null;
+    const now = Date.now();
+    const isCooldownActive = (now - lastSuccessfulFetch < FETCH_COOLDOWN);
+    const forceLive = useCache !== 'true' && !isCooldownActive;
 
-    if (useCache !== 'true') {
-      try {
-        liveData = await fetchAndSyncFromAPI({ commodity, state, district, limit: parseInt(limit) });
-        logger.info(`✅ Mandi: fetched ${liveData.length} records from data.gov.in`);
-      } catch (err) {
-        apiError = err.message;
-        logger.warn(`⚠️ Mandi API unavailable: ${err.message} — falling back to DB cache`);
-      }
+    // Helper to get DB records
+    const getCachedData = async () => {
+      const filter = {};
+      if (commodity) filter.commodity = { $regex: commodity, $options: 'i' };
+      if (state)     filter.state     = { $regex: state,     $options: 'i' };
+      if (district)  filter.district  = { $regex: district,  $options: 'i' };
+      
+      // Expand window to 90 days as Agmarknet updates can be irregular
+      filter.priceDate = { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) };
+
+      const [dbPrices, total] = await Promise.all([
+        MandiPrice.find(filter)
+          .sort({ priceDate: -1 })
+          .skip(parseInt(skip))
+          .limit(parseInt(limit))
+          .lean(),
+        MandiPrice.countDocuments(filter),
+      ]);
+      return { dbPrices, total };
+    };
+
+    // Stale-While-Revalidate Strategy
+    const { dbPrices, total } = await getCachedData();
+
+    if (forceLive) {
+      logger.info(`🔄 Mandi: Triggering background sync for ${state}${commodity ? ' - ' + commodity : ''}`);
+      fetchAndSyncFromAPI({ commodity, state, district, limit: parseInt(limit) })
+        .then((live) => {
+          if (live.length > 0) {
+            lastSuccessfulFetch = Date.now();
+            logger.info(`✅ Mandi: Background sync completed (${live.length} records). First crop: ${live[0].Commodity || live[0].commodity}`);
+          }
+        })
+        .catch((err) => {
+          if (err.response?.status === 429) {
+            lastSuccessfulFetch = Date.now() - (FETCH_COOLDOWN - 10 * 60 * 1000);
+            logger.warn(`⚠️ Mandi API Rate Limited (429). Throttling background sync.`);
+          } else {
+            logger.warn(`⚠️ Mandi Background sync failed: ${err.message}`);
+          }
+        });
     }
 
-    if (liveData.length > 0 && !apiError) {
-      // Return live data normalized
-      const normalized = liveData.map((r) => normalize(r, false));
+    if (dbPrices.length > 0) {
+      const normalized = dbPrices.map((r) => normalize(r, true));
+      logger.info(`📦 Mandi: Returning ${normalized.length} records from cache.`);
       return res.status(200).json({
         success: true,
         data:    normalized,
-        source:  'live',
-        total:   normalized.length,
+        source:  'cache',
+        total,
+        isStale: forceLive,
+        pagination: { total, skip: parseInt(skip), limit: parseInt(limit) },
       });
     }
 
-    // Fallback: read from DB cache
-    const filter = {};
-    if (commodity) filter.commodity = { $regex: commodity, $options: 'i' };
-    if (state)     filter.state     = { $regex: state,     $options: 'i' };
-    if (district)  filter.district  = { $regex: district,  $options: 'i' };
+    // If absolutely no cache, we MUST wait for live data (first time or empty DB)
+    if (useCache !== 'true') {
+      try {
+        logger.info(`📡 Mandi: Cache empty, performing blocking live fetch for ${state}`);
+        const liveData = await fetchAndSyncFromAPI({ commodity, state, district, limit: parseInt(limit) });
+        
+        // Validation: Ensure the records returned are actually usable (not Unknown/0)
+        const validNormalized = liveData
+          .map((r) => normalize(r, false))
+          .filter(r => r.commodity !== 'Unknown' && r.modalPrice > 0);
 
-    // Last 30 days
-    filter.priceDate = { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) };
-
-    const [dbPrices, total] = await Promise.all([
-      MandiPrice.find(filter)
-        .sort({ priceDate: -1 })
-        .skip(parseInt(skip))
-        .limit(parseInt(limit))
-        .lean(),
-      MandiPrice.countDocuments(filter),
-    ]);
-
-    if (!dbPrices.length) {
-      // Return static mock so the UI is never blank
-      return res.status(200).json({
-        success: true,
-        data:    getMockPrices(),
-        source:  'mock',
-        total:   getMockPrices().length,
-        warning: apiError ? `Live API unavailable: ${apiError}` : 'No cached data found',
-      });
+        if (validNormalized.length > 0) {
+          lastSuccessfulFetch = Date.now();
+          logger.info(`✨ Mandi: Live fetch successful, returning ${validNormalized.length} records.`);
+          return res.status(200).json({
+            success: true,
+            data:    validNormalized,
+            source:  'live',
+            total:   validNormalized.length,
+          });
+        } else {
+          logger.warn(`⚠️ Mandi: Live fetch returned ${liveData.length} records but 0 passed final normalization for ${state}`);
+        }
+      } catch (err) {
+        logger.warn(`⚠️ Mandi API fail on empty DB: ${err.message}`);
+      }
     }
 
+    // Absolute fallback: static mock
+    logger.info(`⚠️ Mandi: All fetch methods failed or returned empty. Using mock data.`);
+    const mocks = getMockPrices();
     return res.status(200).json({
       success: true,
-      data:    dbPrices.map((r) => normalize(r, true)),
-      source:  'cache',
-      total,
-      pagination: { total, skip: parseInt(skip), limit: parseInt(limit) },
+      data:    mocks,
+      source:  'mock',
+      total:   mocks.length,
     });
+
   } catch (err) {
     logger.error('getPrices error:', err);
     return res.status(500).json({
       success: false,
       error:   'Failed to fetch mandi prices',
-      data:    getMockPrices(),   // always return something so UI doesn't crash
+      data:    getMockPrices(),
     });
   }
 };

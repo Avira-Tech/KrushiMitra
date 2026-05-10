@@ -10,6 +10,7 @@ const { sendSuccess, sendNotFound, sendError, sendPaginated } = require('../util
 const logger = require('../utils/logger');
 const AuditLog = require('../models/AuditLog');
 const Payout = require('../models/Payout');
+const Truck = require('../models/Truck');
 
 // ─── DASHBOARD ANALYTICS ────────────────────────────────────────────────────────────────────
 const getDashboard = async (req, res) => {
@@ -534,6 +535,52 @@ const updatePayoutStatus = async (req, res) => {
   }
 };
 
+// ─── TRUCK VERIFICATION ───────────────────────────────────────────────────────────────────
+const getPendingTrucks = async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const query = { isApproved: false };
+
+  const [trucks, total] = await Promise.all([
+    Truck.find(query)
+      .populate('owner', 'name phone email')
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit),
+    Truck.countDocuments(query),
+  ]);
+
+  return sendPaginated(res, { data: { trucks }, page, limit, total });
+};
+
+const approveTruck = async (req, res) => {
+  try {
+    const { truckId } = req.params;
+    const { action } = req.body; // 'approve' | 'reject'
+
+    const truck = await Truck.findById(truckId);
+    if (!truck) return sendNotFound(res, 'Truck not found');
+
+    const isApproved = action === 'approve';
+    truck.isApproved = isApproved;
+    await truck.save();
+
+    // Notify owner
+    await NotificationService.create({
+      recipientId: truck.owner,
+      title: isApproved ? 'Truck Approved ✅' : 'Truck Rejected ❌',
+      body: `Your truck with plate number ${truck.plateNumber} has been ${action}d by admin.`,
+      type: 'system'
+    });
+
+    await logAdminAction(req, 'LogisticsManagement', action === 'approve' ? 'ApproveTruck' : 'RejectTruck', truckId);
+
+    return sendSuccess(res, { message: `Truck ${action}d successfully` });
+  } catch (err) {
+    logger.error('approveTruck error:', err);
+    return sendError(res, { message: 'Failed to approve truck', statusCode: 500 });
+  }
+};
+
 module.exports = {
   getDashboard,
   getPendingVerifications,
@@ -550,6 +597,8 @@ module.exports = {
   updateContractTransport,
   getRevenueAnalytics,
   getPayouts,
-  updatePayoutStatus
+  updatePayoutStatus,
+  getPendingTrucks,
+  approveTruck
 };
 

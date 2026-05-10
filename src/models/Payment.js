@@ -107,6 +107,10 @@ const paymentSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    gstAmount: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

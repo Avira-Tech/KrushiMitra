@@ -4,7 +4,7 @@ const sendOtpSchema = Joi.object({
   phone: Joi.string().pattern(/^[6-9]\d{9}$/).required().messages({
     'string.pattern.base': 'Please provide a valid 10-digit Indian mobile number',
   }),
-  role: Joi.string().valid('farmer', 'buyer', 'admin').optional(),
+  role: Joi.string().valid('farmer', 'buyer', 'admin', 'logistics').optional(),
 });
 
 const verifyOtpSchema = Joi.object({
@@ -17,9 +17,9 @@ const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   phone: Joi.string().pattern(/^[6-9]\d{9}$/).required(),
   email: Joi.string().email().optional().allow(null, ''),
-  role: Joi.string().valid('farmer', 'buyer', 'admin').required(),
+  role: Joi.string().valid('farmer', 'buyer', 'admin', 'logistics').required(),
   otp: Joi.string().length(6).optional(),
-  fcmToken: Joi.string().optional(),
+  fcmToken: Joi.string().optional().allow(null),
   location: Joi.object({
     lat: Joi.number().required(),
     lng: Joi.number().required(),
@@ -36,7 +36,7 @@ const registerSchema = Joi.object({
 
 const googleAuthSchema = Joi.object({
   idToken: Joi.string().required(),
-  role: Joi.string().valid('farmer', 'buyer', 'admin').optional(),
+  role: Joi.string().valid('farmer', 'buyer', 'admin', 'logistics').optional(),
 });
 
 const refreshTokenSchema = Joi.object({
