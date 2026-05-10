@@ -23,6 +23,8 @@ const fs = require('fs');
 const logger = require('./src/utils/logger');
 const { apiLimiter } = require('./src/middlewares/rateLimiter');
 const { errorHandler, notFound } = require('./src/middlewares/errorHandler');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpecs = require('./src/config/swagger');
 const { getHealthStatus } = require('./src/services/healthService');
 const {
   correlationIdMiddleware,
@@ -162,6 +164,9 @@ app.get('/health', async (req, res) => {
 
 // Maintenance Mode Protection (Blocks non-admins if active)
 app.use(checkMaintenance);
+
+// ─── API Documentation ────────────────────────────────────────────────────────
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
 // ─── API routes ────────────────────────────────────────────────────────────────
 app.use(`${API_PREFIX}/auth`, authRoutes);

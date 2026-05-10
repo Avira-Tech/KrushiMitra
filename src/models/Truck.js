@@ -37,7 +37,7 @@ const truckSchema = new mongoose.Schema(
     },
     isApproved: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     isVerified: {
       type: Boolean,

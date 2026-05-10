@@ -15,9 +15,63 @@ const {
 } = require('../controllers/authController');
 const { uploadSingle } = require('../middlewares/upload');
 
+/**
+ * @swagger
+ * tags:
+ *   name: Auth
+ *   description: Authentication and identity management
+ */
+
 // Public routes
+
+/**
+ * @swagger
+ * /auth/check-user:
+ *   post:
+ *     summary: Check if a user exists by phone number
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 example: "9876543210"
+ *     responses:
+ *       200:
+ *         description: User status
+ */
 router.post('/check-user', otpLimiter, validate(sendOtpSchema), checkUser);
+
 router.post('/check-availability', checkLimiter, checkAvailability);
+
+/**
+ * @swagger
+ * /auth/send-otp:
+ *   post:
+ *     summary: Send OTP to mobile number
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 example: "9876543210"
+ *     responses:
+ *       200:
+ *         description: OTP sent successfully
+ */
 router.post('/send-otp', otpLimiter, validate(sendOtpSchema), sendOtp);
 router.post('/verify-otp', authLimiter, validate(verifyOtpSchema), verifyOtp);
 router.post('/send-email-otp', otpLimiter, sendEmailOtp);

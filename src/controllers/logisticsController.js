@@ -26,10 +26,11 @@ exports.registerTruck = async (req, res) => {
       driverName,
       driverPhone,
       pricePerKm: pricePerKm || 0,
-      status: 'available'
+      status: 'available',
+      isApproved: true
     });
 
-    return sendSuccess(res, { message: 'Truck registered successfully. Admin will verify soon.', data: truck });
+    return sendSuccess(res, { message: 'Truck registered successfully.', data: truck });
   } catch (err) {
     logger.error('registerTruck error:', err);
     return sendError(res, { message: 'Failed to register truck', statusCode: 500 });
