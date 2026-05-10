@@ -78,6 +78,7 @@ const getMyContracts = async (req, res) => {
         deliveryStatus: obj.delivery?.status || 'pending',
         trackingId: obj.delivery?.trackingId,
         distance: obj.transport?.distance || obj.transport?.distanceKm || 0,
+        logisticsFee: obj.terms?.logisticsFee || obj.transport?.estimatedCost || 0,
       };
     });
 
@@ -125,6 +126,7 @@ const getContractById = async (req, res) => {
           paymentStatus: obj.payment?.status || 'pending',
           deliveryStatus: obj.delivery?.status || 'pending',
           trackingId: obj.delivery?.trackingId,
+          logisticsFee: obj.terms?.logisticsFee || obj.transport?.estimatedCost || 0,
         },
       },
     });

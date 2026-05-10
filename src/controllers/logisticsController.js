@@ -7,6 +7,7 @@ const { sendSuccess, sendError, sendNotFound } = require('../utils/apiResponse')
 const logger = require('../utils/logger');
 const NotificationService = require('../services/notificationService');
 const { sendOTP } = require('../config/sms');
+const { transactionPaymentRelease, transactionCodPayment } = require('../services/transactionService');
 
 /**
  * Register a new truck for a logistics partner
@@ -225,18 +226,33 @@ exports.verifyDelivery = async (req, res) => {
       return sendError(res, { message: 'Invalid OTP', statusCode: 400 });
     }
 
-    contract.delivery.status = 'delivered';
-    contract.delivery.actualDelivery = new Date();
-    contract.status = 'completed';
-    await contract.save();
+    // Determine if we need to release escrow or handle COD
+    if (contract.payment.method === 'cod') {
+      await transactionCodPayment(contractId, { notes: 'Auto-released upon logistics verification' });
+    } else if (['in_escrow', 'requires_capture', 'authorized'].includes(contract.payment.status)) {
+      // Release from escrow (Stripe, etc.)
+      await transactionPaymentRelease(contractId);
+    } else {
+      // Fallback: Just update status if no payment release needed or possible
+      contract.delivery.status = 'delivered';
+      contract.delivery.actualDelivery = new Date();
+      contract.status = 'completed';
+      await contract.save();
+    }
     
     // Free the truck
-    await Truck.findByIdAndUpdate(contract.transport.truck, { status: 'available' });
+    if (contract.transport.truck) {
+      await Truck.findByIdAndUpdate(contract.transport.truck, { status: 'available' });
+    }
 
-    return sendSuccess(res, { message: 'Delivery verified successfully. Job completed.' });
+    // Notify parties of completion
+    await NotificationService.notifyDeliveryUpdate(contract, contract.farmer, 'delivered', 'Crop delivered successfully. Payment has been released.');
+    await NotificationService.notifyDeliveryUpdate(contract, contract.buyer, 'delivered', 'Crop received. Thank you for your business!');
+
+    return sendSuccess(res, { message: 'Delivery verified successfully. Payment released and job completed.' });
   } catch (err) {
     logger.error('verifyDelivery error:', err);
-    return sendError(res, { message: 'Verification failed', statusCode: 500 });
+    return sendError(res, { message: err.message || 'Verification failed', statusCode: 500 });
   }
 };
 
