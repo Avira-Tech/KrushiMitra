@@ -216,6 +216,20 @@ class NotificationService {
       refId: crop._id,
     });
   }
+  
+  static async notifyOtp(contract, recipientId, type, otp) {
+    const isPickup = type === 'pickup';
+    return this.create({
+      recipientId,
+      type: 'otp_verification',
+      title: isPickup ? '🚚 Pickup OTP' : '📦 Delivery OTP',
+      body: `Your OTP for ${isPickup ? 'pickup' : 'delivery'} of ${contract.cropName || 'produce'} is: ${otp}. Provide this to the logistics partner.`,
+      data: { contractId: contract._id, otp, type },
+      refModel: 'Contract',
+      refId: contract._id,
+      priority: 'urgent',
+    });
+  }
 }
 
 module.exports = NotificationService;

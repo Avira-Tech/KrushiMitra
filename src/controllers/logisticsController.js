@@ -5,6 +5,8 @@ const Contract = require('../models/Contract');
 const User = require('../models/User');
 const { sendSuccess, sendError, sendNotFound } = require('../utils/apiResponse');
 const logger = require('../utils/logger');
+const NotificationService = require('../services/notificationService');
+const { sendOTP } = require('../config/sms');
 
 /**
  * Register a new truck for a logistics partner
@@ -126,10 +128,55 @@ exports.acceptJob = async (req, res) => {
     truck.status = 'busy';
     await truck.save();
 
-    return sendSuccess(res, { message: 'Job accepted successfully', data: { pickupOtp } });
+    // Populate for notifications
+    const fullContract = await Contract.findById(contractId).populate('farmer buyer');
+
+    // Notify Farmer of Pickup OTP
+    if (fullContract.farmer.phone) {
+        await sendOTP(fullContract.farmer.phone, pickupOtp);
+    }
+    await NotificationService.notifyOtp(fullContract, fullContract.farmer._id, 'pickup', pickupOtp);
+
+    // Notify Buyer of Delivery OTP (optional at this stage, but good for visibility)
+    if (fullContract.buyer.phone) {
+        await sendOTP(fullContract.buyer.phone, deliveryOtp);
+    }
+    await NotificationService.notifyOtp(fullContract, fullContract.buyer._id, 'delivery', deliveryOtp);
+
+    return sendSuccess(res, { message: 'Job accepted successfully. OTPs sent to parties.', data: { pickupOtp } });
   } catch (err) {
     logger.error('acceptJob error:', err);
     return sendError(res, { message: 'Failed to accept job', statusCode: 500 });
+  }
+};
+
+/**
+ * Resend OTP to Farmer or Buyer
+ */
+exports.resendOtp = async (req, res) => {
+  try {
+    const { contractId, type } = req.body; // type: 'pickup' or 'delivery'
+    const contract = await Contract.findById(contractId).populate('farmer buyer');
+
+    if (!contract) return sendNotFound(res, 'Contract not found');
+    if (contract.transport.logisticsPartner.toString() !== req.user._id.toString()) {
+      return sendError(res, { message: 'Unauthorized', statusCode: 403 });
+    }
+
+    const otp = type === 'pickup' ? contract.transport.pickupOtp : contract.transport.deliveryOtp;
+    const recipient = type === 'pickup' ? contract.farmer : contract.buyer;
+
+    if (!otp) return sendError(res, { message: 'No OTP generated for this contract yet', statusCode: 400 });
+
+    if (recipient.phone) {
+      await sendOTP(recipient.phone, otp);
+    }
+    await NotificationService.notifyOtp(contract, recipient._id, type, otp);
+
+    return sendSuccess(res, { message: `OTP resent to ${type === 'pickup' ? 'Farmer' : 'Buyer'} successfully.` });
+  } catch (err) {
+    logger.error('resendOtp error:', err);
+    return sendError(res, { message: 'Failed to resend OTP', statusCode: 500 });
   }
 };
 

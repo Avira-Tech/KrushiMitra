@@ -7,7 +7,8 @@ const {
   acceptJob,
   verifyPickup,
   verifyDelivery,
-  getSuggestedTrucks
+  getSuggestedTrucks,
+  resendOtp
 } = require('../controllers/logisticsController');
 
 router.use(protect);
@@ -25,5 +26,6 @@ router.post('/jobs/accept', restrictTo('logistics'), acceptJob);
 // Handover Verification
 router.post('/verify-pickup', restrictTo('logistics'), verifyPickup);
 router.post('/verify-delivery', restrictTo('logistics'), verifyDelivery);
+router.post('/resend-otp', restrictTo('logistics'), resendOtp);
 
 module.exports = router;
