@@ -11,7 +11,7 @@ const {
   checkUser, sendOtp, sendEmailOtp, verifyOtp, verifyEmailOtp, register, googleAuth,
   refreshToken, logout, getProfile, updateProfile,
   getBankDetails, updateBankDetails, checkAvailability,
-  verifyAadhaar, verifyGST, verifyBankDetails
+  verifyAadhaar, verifyGST, verifyBankDetails, initiateAadhaarVerification, completeAadhaarVerification
 } = require('../controllers/authController');
 const { uploadSingle } = require('../middlewares/upload');
 
@@ -26,6 +26,11 @@ router.post('/register', authLimiter, validate(registerSchema), register);
 router.post('/google', authLimiter, validate(googleAuthSchema), googleAuth);
 router.post('/refresh-token', validate(refreshTokenSchema), refreshToken);
 
+// Verification (Public for registration flow)
+router.post('/verify-aadhaar/initiate', initiateAadhaarVerification);
+router.post('/verify-aadhaar/complete', completeAadhaarVerification);
+router.post('/verify-gst', verifyGST);
+
 // Protected routes
 router.use(protect);
 router.post('/logout', logout);
@@ -36,9 +41,8 @@ router.put('/profile', uploadSingle('avatar'), validate(updateProfileSchema), up
 router.get('/bank-details', getBankDetails);
 router.put('/bank-details', updateBankDetails);
 
-// Verification
+// Other Verification
 router.post('/verify-aadhaar', verifyAadhaar);
-router.post('/verify-gst', verifyGST);
 router.post('/verify-bank', verifyBankDetails);
 
 module.exports = router;

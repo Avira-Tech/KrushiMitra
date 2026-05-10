@@ -357,10 +357,20 @@ const register = async (req, res) => {
   if (role === 'farmer') {
     updateData.farmerId = farmerId || generateFarmerId(name, normalizedPhone);
     updateData.aadhaarNumber = aadhaarNumber;
-  } else if (role === 'buyer') {
+    // Mark verified if Aadhaar provided during registration flow (frontend ensures verification)
+    if (aadhaarNumber) {
+      updateData.isVerified = true;
+      updateData.verificationStatus = 'approved';
+    }
+  } else if (role === 'buyer' || role === 'logistics') {
     updateData.companyName = companyName;
     updateData.gstNumber = gstNumber;
     updateData.businessAddress = businessAddress;
+    // Mark verified if GST provided
+    if (gstNumber) {
+      updateData.isVerified = true;
+      updateData.verificationStatus = 'approved';
+    }
   }
 
   if (location) {
@@ -665,6 +675,53 @@ const verifyAadhaar = async (req, res) => {
   });
 };
 
+const initiateAadhaarVerification = async (req, res) => {
+  const { aadhaarNumber, phoneNumber } = req.body;
+  if (!aadhaarNumber) return sendValidationError(res, [{ field: 'aadhaarNumber', message: 'Aadhaar number is required' }]);
+
+  try {
+    // If phone not in body, try to get from logged in user
+    const targetPhone = phoneNumber || req.user?.phone;
+    const result = await verificationService.initiateAadhaarOTP(aadhaarNumber, targetPhone);
+    return sendSuccess(res, {
+      message: 'OTP initiated successfully',
+      data: result
+    });
+  } catch (error) {
+    return sendError(res, { message: error.message, statusCode: 400 });
+  }
+};
+
+const completeAadhaarVerification = async (req, res) => {
+  const { referenceId, otp } = req.body;
+  if (!referenceId || !otp) {
+    return sendValidationError(res, [
+      { field: 'referenceId', message: 'Reference ID is required' },
+      { field: 'otp', message: 'OTP is required' }
+    ]);
+  }
+
+  try {
+    const result = await verificationService.verifyAadhaarOTP(referenceId, otp);
+    
+    // If verified, we could update the user's status in DB
+    if (result.isValid && req.user) {
+      await User.findByIdAndUpdate(req.user._id, {
+        isVerified: true,
+        verificationStatus: 'approved',
+        'verificationDetails.aadhaar': result.details
+      });
+    }
+
+    return sendSuccess(res, {
+      message: 'Aadhaar verification successful',
+      data: result
+    });
+  } catch (error) {
+    return sendError(res, { message: error.message, statusCode: 400 });
+  }
+};
+
 const verifyGST = async (req, res) => {
   const { gstNumber } = req.body;
   if (!gstNumber) return sendValidationError(res, [{ field: 'gstNumber', message: 'GST number is required' }]);
@@ -720,6 +777,8 @@ module.exports = {
   getBankDetails,
   updateBankDetails,
   verifyAadhaar,
+  initiateAadhaarVerification,
+  completeAadhaarVerification,
   verifyGST,
   verifyBankDetails,
 };

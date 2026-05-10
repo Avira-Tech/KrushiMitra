@@ -3,6 +3,8 @@
 const axios = require('axios');
 const razorpay = require('../config/razorpay');
 const logger = require('../utils/logger');
+const { sendOTP } = require('../config/sms');
+const { generateOTP } = require('../utils/helpers');
 
 /**
  * Verhoeff Algorithm for Aadhaar Checksum Validation
@@ -125,9 +127,76 @@ const verifyBankAccount = async (accountNumber, ifsc, name) => {
   }
 };
 
+/**
+ * Initiates Aadhaar OTP Verification
+ * @param {string} aadhaarNumber 
+ * @param {string} phoneNumber 
+ */
+const initiateAadhaarOTP = async (aadhaarNumber, phoneNumber) => {
+  try {
+    if (!validateAadhaarFormat(aadhaarNumber)) {
+      throw new Error('Invalid Aadhaar format');
+    }
+
+    // Note: This is a placeholder for a real Aadhaar API provider (e.g., Zoop, Cashfree, Digio)
+    // In a real scenario, you would call their 'Send OTP' endpoint.
+    // Example: const response = await axios.post('https://api.provider.com/v1/aadhaar/otp', { aadhaarNumber }, { headers });
+    
+    logger.info(`Aadhaar OTP initiated for: ${aadhaarNumber.substring(0, 4)}XXXX${aadhaarNumber.substring(8)}`);
+    
+    const otp = "123456"; // Keep it simple for dev, or use generateOTP()
+    
+    if (phoneNumber) {
+      await sendOTP(phoneNumber, otp);
+      logger.info(`Aadhaar Simulation OTP sent to ${phoneNumber}`);
+    }
+
+    return {
+      success: true,
+      referenceId: `adh_${Math.random().toString(36).substr(2, 9)}`,
+      message: 'OTP sent to your registered mobile number for simulation'
+    };
+  } catch (error) {
+    logger.error('Aadhaar OTP Initiation Error:', error.message);
+    throw new Error(error.message || 'Failed to initiate Aadhaar verification');
+  }
+};
+
+/**
+ * Verifies Aadhaar OTP and retrieves details
+ * @param {string} referenceId 
+ * @param {string} otp 
+ */
+const verifyAadhaarOTP = async (referenceId, otp) => {
+  try {
+    // Note: Placeholder for provider's OTP verification endpoint
+    // Example: const response = await axios.post('https://api.provider.com/v1/aadhaar/verify', { referenceId, otp }, { headers });
+
+    if (otp === '123456') { // Mock success for development
+      return {
+        isValid: true,
+        details: {
+          full_name: 'John Doe',
+          gender: 'M',
+          dob: '1990-01-01',
+          address: '123, Green Valley, Pune, Maharashtra',
+          is_verified: true
+        }
+      };
+    }
+
+    throw new Error('Invalid OTP');
+  } catch (error) {
+    logger.error('Aadhaar OTP Verification Error:', error.message);
+    throw new Error(error.message || 'Aadhaar verification failed');
+  }
+};
+
 module.exports = {
   validateAadhaarFormat,
   validateGSTFormat,
   verifyGSTWithRazorpay,
-  verifyBankAccount
+  verifyBankAccount,
+  initiateAadhaarOTP,
+  verifyAadhaarOTP
 };
