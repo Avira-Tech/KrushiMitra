@@ -174,7 +174,7 @@ const transactionOfferAcceptance = (offerId, userId) =>
             provider: offer.selectedTruck ? 'local' : 'none',
             status: offer.selectedTruck ? 'requested' : 'none',
             truck: offer.selectedTruck,
-            logisticsPartner: offer.selectedTruck ? (await mongoose.model('Truck').findById(offer.selectedTruck)).owner : undefined,
+            logisticsPartner: offer.selectedTruck ? (await mongoose.model('Truck').findById(offer.selectedTruck).session(session))?.owner : undefined,
             pickupOtp: Math.floor(100000 + Math.random() * 900000).toString(),
             deliveryOtp: Math.floor(100000 + Math.random() * 900000).toString(),
             estimatedCost: offer.transportCost || 0,

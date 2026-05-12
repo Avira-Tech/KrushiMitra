@@ -24,7 +24,7 @@ const { sendEmail } = require('../utils/emailService');
 const User = require('../models/User');
 const BlackBuckService = require('../services/blackbuckService');
 const ULIPService = require('../services/ulipService');
-const { calculateDistance } = require('../utils/distance');
+const { calculateDistance } = require('../utils/helpers');
 
 // ─── GET /api/v1/contracts ────────────────────────────────────────────────────
 const getMyContracts = async (req, res) => {
@@ -423,7 +423,6 @@ const updateDeliveryLocation = async (req, res) => {
     let distanceKm = contract.transport?.distanceKm || 0;
 
     if (farmer?.location?.coordinates) {
-      const { calculateDistance } = require('../utils/helpers');
       const fLoc = farmer.location.coordinates;
       distanceKm = calculateDistance(fLoc[1], fLoc[0], lat, lng);
       logger.info(`📍 Recalculated distance for contract ${contract._id}: ${distanceKm} km`);
@@ -628,11 +627,22 @@ const requestTransport = async (req, res) => {
     const buyer = await User.findById(contract.buyer).select('location');
     
     let distanceKm = 0;
-    if (farmer?.location?.coordinates && buyer?.location?.coordinates) {
-      distanceKm = calculateDistance(
-        farmer.location.coordinates[1], farmer.location.coordinates[0],
-        buyer.location.coordinates[1], buyer.location.coordinates[0]
-      );
+    const buyerLoc = contract.delivery?.buyerLocation?.coordinates || buyer?.location?.coordinates;
+    const farmerLoc = farmer?.location?.coordinates;
+    
+    if (farmerLoc && farmerLoc.length >= 2 && buyerLoc && buyerLoc.length >= 2) {
+      const fLat = farmerLoc[1];
+      const fLng = farmerLoc[0];
+      const bLat = buyerLoc[1];
+      const bLng = buyerLoc[0];
+
+      if (!isNaN(fLat) && !isNaN(fLng) && !isNaN(bLat) && !isNaN(bLng)) {
+        distanceKm = calculateDistance(fLat, fLng, bLat, bLng);
+      } else {
+        logger.warn(`Invalid coordinates for distance calculation. Contract: ${contract._id}`);
+      }
+    } else {
+      logger.warn(`Missing coordinates for distance calculation. Contract: ${contract._id}`);
     }
 
     const estimatedCost = Math.round(distanceKm * (truck.pricePerKm || 20));

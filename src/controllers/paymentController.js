@@ -92,11 +92,20 @@ const createStripePaymentIntent = async (req, res) => {
     const gstOnFee = gstUnits / 100;
     const grandTotal = grandTotalUnits / 100;
 
-    // Stripe minimum for INR is ₹50 (5000 paise). This is a hard requirement.
+    // Stripe limits for INR: Min ₹50, Max ₹9,999,999.99
     const STRIPE_MIN_INR_PAISE = 5000;
+    const STRIPE_MAX_INR_PAISE = 999999999;
+
     if (grandTotalUnits < STRIPE_MIN_INR_PAISE) {
       return sendError(res, {
         message: `Payment amount ₹${grandTotal.toFixed(2)} is below the minimum order value of ₹50. Please increase the quantity.`,
+        statusCode: 400,
+      });
+    }
+
+    if (grandTotalUnits > STRIPE_MAX_INR_PAISE) {
+      return sendError(res, {
+        message: `Payment amount ₹${grandTotal.toFixed(2)} exceeds the maximum allowed by our payment provider (₹9,999,999.99). Please contact support for high-value trade settlements.`,
         statusCode: 400,
       });
     }

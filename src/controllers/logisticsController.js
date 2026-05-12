@@ -29,8 +29,7 @@ exports.registerTruck = async (req, res) => {
       driverName,
       driverPhone,
       pricePerKm: pricePerKm || 0,
-      status: 'available',
-      isApproved: true
+      status: 'available'
     });
 
     return sendSuccess(res, { message: 'Truck registered successfully.', data: truck });
@@ -132,17 +131,25 @@ exports.acceptJob = async (req, res) => {
     // Populate for notifications
     const fullContract = await Contract.findById(contractId).populate('farmer buyer');
 
-    // Notify Farmer of Pickup OTP
-    if (fullContract.farmer.phone) {
-        await sendOTP(`+91${fullContract.farmer.phone}`, pickupOtp);
-    }
-    await NotificationService.notifyOtp(fullContract, fullContract.farmer._id, 'pickup', pickupOtp);
+    // Notify Farmer of Job Assigned (Not OTP yet)
+    await NotificationService.create({
+        recipientId: fullContract.farmer._id,
+        type: 'logistics_assigned',
+        title: '🚚 Truck Assigned',
+        body: `A logistics partner has accepted the job for ${fullContract.terms.cropName}.`,
+        refModel: 'Contract',
+        refId: fullContract._id,
+    }).catch(logger.error);
 
-    // Notify Buyer of Delivery OTP (optional at this stage, but good for visibility)
-    if (fullContract.buyer.phone) {
-        await sendOTP(`+91${fullContract.buyer.phone}`, deliveryOtp);
-    }
-    await NotificationService.notifyOtp(fullContract, fullContract.buyer._id, 'delivery', deliveryOtp);
+    // Notify Buyer of Job Assigned (Not OTP yet)
+    await NotificationService.create({
+        recipientId: fullContract.buyer._id,
+        type: 'logistics_assigned',
+        title: '🚚 Truck Assigned',
+        body: `A logistics partner is assigned to your order of ${fullContract.terms.cropName}.`,
+        refModel: 'Contract',
+        refId: fullContract._id,
+    }).catch(logger.error);
 
     return sendSuccess(res, { message: 'Job accepted successfully. OTPs sent to parties.', data: { pickupOtp } });
   } catch (err) {
@@ -170,7 +177,8 @@ exports.resendOtp = async (req, res) => {
     if (!otp) return sendError(res, { message: 'No OTP generated for this contract yet', statusCode: 400 });
 
     if (recipient.phone) {
-      await sendOTP(`+91${recipient.phone}`, otp);
+      const phone = recipient.phone.startsWith('+') ? recipient.phone : `+91${recipient.phone}`;
+      await sendOTP(phone, otp);
     }
     await NotificationService.notifyOtp(contract, recipient._id, type, otp);
 
