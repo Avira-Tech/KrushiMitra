@@ -24,7 +24,7 @@ const startChat = async (req, res) => {
 
     let conversation = await Conversation.findOne({
       participants: { $size: 2, $all: participants },
-    }).populate('participants', 'name avatar role');
+    }).populate('participants', 'name avatar role phone');
 
     if (!conversation) {
       conversation = new Conversation({ participants });
@@ -49,7 +49,7 @@ const getConversations = async (req, res) => {
     const { skip = 0, limit = 20 } = req.query;
 
     const conversationsRaw = await Conversation.find({ participants: userId })
-      .populate('participants', 'name avatar role')
+      .populate('participants', 'name avatar role phone')
       .populate({
         path: 'lastMessage',
         select: 'content sender createdAt',

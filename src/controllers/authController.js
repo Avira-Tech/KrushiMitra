@@ -21,7 +21,7 @@ const verifyOtpHelper = async (phone, otp) => {
   const LOCKOUT_KEY = `lockout:otp:${normalizedPhone}`;
   const ATTEMPTS_KEY = `attempts:otp:${normalizedPhone}`;
 
-  // 1. Check if account is locked in Redis (Distributed Lockout)
+  // 1. Check if account is locked in Redis or DB (Distributed Lockout)
   const isLocked = await redis.get(LOCKOUT_KEY);
   if (isLocked) {
     const ttl = await redis.ttl(LOCKOUT_KEY);
@@ -36,8 +36,18 @@ const verifyOtpHelper = async (phone, otp) => {
       { phone: `91${normalizedPhone}` },
       { phone: `0${normalizedPhone}` }
     ]
-  }).select('+otp +refreshToken');
+  }).select('+otp +refreshToken +securityStatus');
   if (!user) return { success: false, error: 'User not found', status: 401 };
+
+  // Check DB level block (e.g. 12hr block from PIN failures)
+  if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
+    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+    return { 
+      success: false, 
+      error: `Security Alert: Your account is blocked for ${remainingHours} more hours due to multiple incorrect PIN attempts.`, 
+      status: 403 
+    };
+  }
   if (!user.otp?.code || !user.otp?.expiresAt) return { success: false, error: 'No active OTP. Request a new one.', status: 401 };
 
   // 2. Check Expiry
@@ -139,10 +149,16 @@ const sendOtp = async (req, res) => {
       { phone: `91${normalizedPhone}` },
       { phone: `0${normalizedPhone}` }
     ]
-  }).select('+otp');
+  }).select('+otp +securityStatus');
   const isNewUser = !user;
 
-  // Rate limiting: max 5 OTPs per 20 minutes (hardened)
+  // 1. Check Security Block (e.g. 12hr block from PIN failures)
+  if (user?.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
+    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+    return sendForbidden(res, `Your account is temporarily blocked for security reasons. Please try again after ${remainingHours} hours.`);
+  }
+
+  // 2. Rate limiting: max 5 OTPs per 20 minutes (hardened)
   if (user?.otp?.attempts >= 5 && user.otp.expiresAt > new Date(Date.now() - 20 * 60 * 1000)) {
     return sendError(res, { message: 'Too many OTP requests. Please wait 15 minutes.', statusCode: 429 });
   }
@@ -247,6 +263,75 @@ const verifyEmailOtp = async (req, res) => {
   });
 
   return sendSuccess(res, { message: 'Email verified successfully' });
+};
+
+// ─── VERIFY PIN ─────────────────────────────────────────────────────────
+const verifyPin = async (req, res) => {
+  let { pin, type = 'transaction' } = req.body;
+  const userId = req.user._id;
+
+  // Handle nested structure if any old frontend code sends it
+  if (typeof pin === 'object' && pin.pin) {
+    type = pin.type || type;
+    pin = pin.pin;
+  }
+
+  if (!pin || typeof pin !== 'string') {
+    return sendError(res, { message: 'Valid PIN is required', statusCode: 400 });
+  }
+
+  const user = await User.findById(userId).select('+transactionPin +securityPin +securityStatus');
+  if (!user) return sendError(res, { message: 'User not found', statusCode: 404 });
+
+  // 1. Check Block
+  if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
+    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+    return sendForbidden(res, `Security Block: Try again after ${remainingHours} hours.`);
+  }
+
+  // 2. Validate PIN
+  let isValid = false;
+  if (type === 'security') {
+    if (!user.securityPin) {
+      return sendError(res, { message: 'Security PIN not set.', statusCode: 400 });
+    }
+    isValid = await user.matchSecurityPin(pin);
+  } else {
+    if (!user.transactionPin) {
+      return sendError(res, { message: 'Transaction PIN not set. Please set it in Bank Details.', statusCode: 400 });
+    }
+    isValid = await user.matchTransactionPin(pin);
+  }
+
+  if (!isValid) {
+    const attempts = (user.securityStatus?.pinWrongAttempts || 0) + 1;
+    const update = { 'securityStatus.pinWrongAttempts': attempts };
+
+    if (attempts >= 3) {
+      update['securityStatus.blockedUntil'] = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours
+      update['securityStatus.blockReason'] = 'Too many incorrect PIN attempts';
+      await User.findByIdAndUpdate(userId, { $set: update });
+      
+      // Invalidate cache
+      await cache.del(`user:status:${userId}`);
+
+      logger.warn(`User ${userId} blocked for 12 hours after 3 failed PIN attempts.`);
+      return sendForbidden(res, 'Security Alert: 3 incorrect PIN attempts. Your account (login & transactions) is blocked for 12 hours.');
+    }
+
+    await User.findByIdAndUpdate(userId, { $set: update });
+    return sendError(res, { 
+      message: `Security Warning: ${attempts} attempt(s) failed. If you enter 3 wrong PINs, your account will be blocked for 12 hours. You have ${3 - attempts} chance(s) remaining.`, 
+      statusCode: 401 
+    });
+  }
+
+  // 3. Success: Reset attempts
+  await User.findByIdAndUpdate(userId, { 
+    $set: { 'securityStatus.pinWrongAttempts': 0 } 
+  });
+
+  return sendSuccess(res, { message: 'PIN verified' });
 };
 
 // ─── VERIFY OTP / LOGIN ─────────────────────────────────────────────────────────────
@@ -436,7 +521,13 @@ const googleAuth = async (req, res) => {
     const googleIdStr = String(googleId);
     const emailStr = String(email).toLowerCase();
 
-    let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] });
+    let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] }).select('+securityStatus');
+
+    // Check Security Block
+    if (user?.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
+      const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+      return sendForbidden(res, `Security Block: Your account is restricted for ${remainingHours} more hours due to security reasons.`);
+    }
 
     if (!user) {
       user = await User.create({
@@ -474,8 +565,14 @@ const refreshToken = async (req, res) => {
 
   try {
     const decoded = verifyRefreshToken(token);
-    const user = await User.findById(decoded.id).select('+refreshToken');
+    const user = await User.findById(decoded.id).select('+refreshToken +securityStatus');
     if (!user) return sendUnauthorized(res, 'User not found');
+
+    // Check Security Block
+    if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
+      const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+      return sendForbidden(res, `Security Block: Your session cannot be refreshed for ${remainingHours} more hours.`);
+    }
 
     // Token Rotation & Reuse Detection
     const hashedToken = hashString(token);
@@ -544,11 +641,20 @@ const getProfile = async (req, res) => {
 // ─── UPDATE PROFILE ──────────────────────────────────────────────────────────────────────
 const updateProfile = async (req, res) => {
   try {
-    const { name, email, phone, language, fcmToken, location, companyName, businessAddress, username, avatar } = req.body;
+    const { 
+      name, email, phone, language, fcmToken, location, companyName, businessAddress, 
+      username, avatar, securityPin, transactionPin, securityPinHistory, transactionPinHistory 
+    } = req.body;
     const updateData = {};
     const specialUpdates = {};
 
     if (name) updateData.name = name;
+    if (securityPin) updateData.securityPin = securityPin;
+    if (transactionPin) updateData.transactionPin = transactionPin;
+    if (securityPinHistory) updateData.securityPinHistory = securityPinHistory;
+    if (transactionPinHistory) updateData.transactionPinHistory = transactionPinHistory;
+    if (req.body.securityPinUpdatedAt) updateData.securityPinUpdatedAt = req.body.securityPinUpdatedAt;
+    if (req.body.transactionPinUpdatedAt) updateData.transactionPinUpdatedAt = req.body.transactionPinUpdatedAt;
 
     if (email && email.toLowerCase() !== req.user.email) {
       const emailExists = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.user._id } });
@@ -609,15 +715,16 @@ const updateProfile = async (req, res) => {
       };
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { $set: updateData, ...specialUpdates },
-      { new: true, runValidators: true }
-    );
+    const user = await User.findById(req.user._id);
+    if (!user) return sendError(res, { message: 'User not found', statusCode: 404 });
 
-    if (user) {
-      await cache.del(`user:status:${user._id}`);
+    Object.assign(user, updateData);
+    if (fcmToken && !user.fcmTokens.includes(fcmToken)) {
+      user.fcmTokens.push(fcmToken);
     }
+
+    await user.save();
+    await cache.del(`user:status:${user._id}`);
 
     return sendSuccess(res, {
       message: updateData.email ? 'Profile updated. Please verify your new email.' : 'Profile updated',
@@ -781,4 +888,5 @@ module.exports = {
   completeAadhaarVerification,
   verifyGST,
   verifyBankDetails,
+  verifyPin,
 };

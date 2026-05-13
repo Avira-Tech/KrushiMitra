@@ -11,7 +11,7 @@ const {
   checkUser, sendOtp, sendEmailOtp, verifyOtp, verifyEmailOtp, register, googleAuth,
   refreshToken, logout, getProfile, updateProfile,
   getBankDetails, updateBankDetails, checkAvailability,
-  verifyAadhaar, verifyGST, verifyBankDetails, initiateAadhaarVerification, completeAadhaarVerification
+  verifyAadhaar, verifyGST, verifyBankDetails, initiateAadhaarVerification, completeAadhaarVerification, verifyPin
 } = require('../controllers/authController');
 const { uploadSingle } = require('../middlewares/upload');
 
@@ -94,6 +94,35 @@ router.put('/profile', uploadSingle('avatar'), validate(updateProfileSchema), up
 // Bank details
 router.get('/bank-details', getBankDetails);
 router.put('/bank-details', updateBankDetails);
+/**
+ * @swagger
+ * /auth/verify-pin:
+ *   post:
+ *     summary: Verify transaction PIN with security lockout
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - pin
+ *             properties:
+ *               pin:
+ *                 type: string
+ *                 example: "1234"
+ *     responses:
+ *       200:
+ *         description: PIN verified
+ *       401:
+ *         description: Incorrect PIN
+ *       403:
+ *         description: Account blocked for 12 hours
+ */
+router.post('/verify-pin', protect, verifyPin);
 
 // Other Verification
 router.post('/verify-aadhaar', verifyAadhaar);

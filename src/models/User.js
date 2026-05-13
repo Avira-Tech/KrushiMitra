@@ -123,6 +123,17 @@ const userSchema = new mongoose.Schema(
       wrongAttempts: { type: Number, default: 0 }, // OTP verification failures
       lockedUntil: { type: Date },
     },
+    transactionPin: { type: String, select: false },
+    transactionPinUpdatedAt: { type: Date },
+    transactionPinHistory: { type: [String], select: false },
+    securityPin: { type: String, select: false },
+    securityPinUpdatedAt: { type: Date },
+    securityPinHistory: { type: [String], select: false },
+    securityStatus: {
+      pinWrongAttempts: { type: Number, default: 0 },
+      blockedUntil: { type: Date },
+      blockReason: { type: String }
+    },
     emailOtp: {
       code: { type: String },
       expiresAt: { type: Date },
@@ -189,6 +200,16 @@ userSchema.pre('save', async function (next) {
     this.farmerId = `KM-F-${namePart}-${phonePart}-${random}`;
   }
 
+  // Hash PINs if modified
+  if (this.transactionPin && this.isModified('transactionPin')) {
+    const salt = await bcrypt.genSalt(10);
+    this.transactionPin = await bcrypt.hash(this.transactionPin, salt);
+  }
+  if (this.securityPin && this.isModified('securityPin')) {
+    const salt = await bcrypt.genSalt(10);
+    this.securityPin = await bcrypt.hash(this.securityPin, salt);
+  }
+
   if (!this.password || !this.isModified('password')) return next();
   try {
     const salt = await bcrypt.genSalt(12);
@@ -203,6 +224,16 @@ userSchema.pre('save', async function (next) {
 userSchema.methods.matchPassword = async function (enteredPassword) {
   if (!this.password) return false;
   return bcrypt.compare(enteredPassword, this.password);
+};
+
+userSchema.methods.matchTransactionPin = async function (enteredPin) {
+  if (!this.transactionPin || !enteredPin || typeof enteredPin !== 'string') return false;
+  return bcrypt.compare(enteredPin, this.transactionPin);
+};
+
+userSchema.methods.matchSecurityPin = async function (enteredPin) {
+  if (!this.securityPin || !enteredPin || typeof enteredPin !== 'string') return false;
+  return bcrypt.compare(enteredPin, this.securityPin);
 };
 
 /**
@@ -223,12 +254,25 @@ userSchema.methods.toJSON = function () {
   delete obj.refreshToken;
   delete obj.fcmToken;
   delete obj.otp;
+  delete obj.transactionPin;
+  delete obj.transactionPinHistory;
+  delete obj.securityPin;
+  delete obj.securityPinHistory;
   return obj;
 };
 
 userSchema.methods.toSafeObject = function () {
   return this.toJSON();
 };
+
+// ─── Virtuals for security status ─────────────────────────────────────────────
+userSchema.virtual('hasTransactionPin').get(function () {
+  return !!this.transactionPin;
+});
+
+userSchema.virtual('hasSecurityPin').get(function () {
+  return !!this.securityPin;
+});
 
 // ─── Virtual: full address string ─────────────────────────────────────────────
 userSchema.virtual('fullAddress').get(function () {

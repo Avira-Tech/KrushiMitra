@@ -80,6 +80,12 @@ const requestWithdrawal = async (req, res) => {
     const { paymentId, notes } = req.body;
     const farmerId = req.user._id;
 
+    // Check Security Block
+    if (req.user.isSecurityBlocked) {
+      const remainingHours = Math.ceil((new Date(req.user.blockedUntil) - new Date()) / (1000 * 60 * 60));
+      return sendForbidden(res, `Security Block: Withdrawal is restricted for ${remainingHours} more hours due to multiple incorrect PIN attempts.`);
+    }
+
     if (!paymentId) {
       return sendError(res, { message: 'paymentId is required', statusCode: 400 });
     }

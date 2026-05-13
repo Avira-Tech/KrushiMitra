@@ -95,14 +95,14 @@ const protect = async (req, res, next) => {
     let user = await cache.get(cacheKey);
 
     if (!user) {
-      user = await User.findById(decoded.id).select('role status isBanned isActive isVerified bankDetails').lean();
+      user = await User.findById(decoded.id).select('role status isBanned isActive isVerified bankDetails securityStatus').lean();
       if (user) {
         await cache.set(cacheKey, user, 300); // Cache for 5 minutes
       }
     }
 
     if (!user || user.isBanned || !user.isActive || ['banned', 'suspended'].includes(user.status)) {
-      logger.warn(`Blocked access for inactive/banned user: ${decoded.id}`);
+      logger.warn(`Blocked access for inactive/banned user: ${decoded.id}`, { status: user?.status, isActive: user?.isActive, isBanned: user?.isBanned });
       
       // Force disconnect active sockets if user was just banned
       socketService.emitToUser(decoded.id, 'force_logout', { reason: 'Account suspended' });
@@ -110,19 +110,27 @@ const protect = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Account is inactive or suspended' });
     }
 
-    // Merge decoded token claims with live DB fields
-    req.token = token; // Attach for logout/blacklist usage
+    // NEW: Attach Security Block status to req.user instead of blocking all data access
+    // This allows blocked users to still view their data/profile, but restricted actions 
+    // (login/withdrawal) will check this flag.
+    const isSecurityBlocked = !!(user.securityStatus?.blockedUntil && new Date(user.securityStatus.blockedUntil) > new Date());
+    const blockedUntil = isSecurityBlocked ? user.securityStatus.blockedUntil : null;
+
+    // Set req.user here so subsequent checks and logging can see it
     req.user = {
-      _id:        decoded.id,
-      id:         decoded.id,   // some controllers use .id, others ._id
-      role:       user.role,
-      phone:      decoded.phone,
-      isVerified: user.isVerified,
-      status:     user.status,
-      bankDetails: user.bankDetails,
-      csrfToken:  decoded.csrfToken, // stateless CSRF check
+      _id:               decoded.id,
+      id:                decoded.id,
+      role:              user.role,
+      phone:             decoded.phone,
+      isVerified:        user.isVerified,
+      status:            user.status,
+      bankDetails:       user.bankDetails,
+      csrfToken:         decoded.csrfToken,
+      isSecurityBlocked,
+      blockedUntil,
     };
 
+    req.token = token; // Attach for logout/blacklist usage
     next();
   } catch (error) {
     logger.error('Token verification failed:', error.message);
