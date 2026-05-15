@@ -12,7 +12,9 @@ const startDeliveryWorker = () => {
     'delivery-scheduling',
     async (job) => {
       const { contractId } = job.data;
-      logger.info(`🚚 Processing delivery scheduling for contract: ${contractId} (Attempt ${job.attemptsMade + 1})`);
+      logger.info(
+        `🚚 Processing delivery scheduling for contract: ${contractId} (Attempt ${job.attemptsMade + 1})`,
+      );
 
       const contract = await Contract.findById(contractId);
       if (!contract) {
@@ -50,26 +52,28 @@ const startDeliveryWorker = () => {
     {
       connection: { url: REDIS_URL },
       concurrency: 5,
-    }
+    },
   );
 
   worker.on('failed', async (job, err) => {
     logger.error(`❌ Delivery Job ${job.id} failed: ${err.message}`);
-    
+
     // If all attempts failed, notify admin
     if (job.attemptsMade >= (job.opts.attempts || 5)) {
       const { contractId } = job.data;
-      logger.error(`🚨 FATAL: Delivery scheduling failed for contract ${contractId} after max retries.`);
-      
+      logger.error(
+        `🚨 FATAL: Delivery scheduling failed for contract ${contractId} after max retries.`,
+      );
+
       const admins = await User.find({ role: 'admin' }).select('_id');
       await NotificationService.createBulk(
-        admins.map(a => a._id),
+        admins.map((a) => a._id),
         {
           type: 'system',
           title: '🚨 POS Delivery Failure',
           body: `Critical: Failed to schedule delivery for Contract ${contractId} after 5 retries. Manual intervention required.`,
           priority: 'urgent',
-        }
+        },
       ).catch(() => {});
     }
   });

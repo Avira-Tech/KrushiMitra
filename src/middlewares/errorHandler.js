@@ -6,10 +6,19 @@ const logger = require('../utils/logger');
  */
 const sanitizeData = (data) => {
   if (!data) return data;
-  const sensitiveFields = ['otp', 'password', 'token', 'refreshToken', 'razorpay_secret', 'secret', 'cvv', 'card'];
+  const sensitiveFields = [
+    'otp',
+    'password',
+    'token',
+    'refreshToken',
+    'razorpay_secret',
+    'secret',
+    'cvv',
+    'card',
+  ];
   const sanitized = { ...data };
 
-  sensitiveFields.forEach(field => {
+  sensitiveFields.forEach((field) => {
     if (field in sanitized) sanitized[field] = '*****';
   });
 

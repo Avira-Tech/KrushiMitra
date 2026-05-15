@@ -68,7 +68,7 @@ const truckSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 truckSchema.index({ currentLocation: '2dsphere' });

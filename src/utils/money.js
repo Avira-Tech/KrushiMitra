@@ -1,7 +1,7 @@
 'use strict';
 /**
  * money.js
- * 
+ *
  * Utility functions for handling currency in integer units (cents/paise).
  * Prevents floating point precision errors in financial calculations.
  */

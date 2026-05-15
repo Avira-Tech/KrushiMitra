@@ -1,10 +1,7 @@
 const twilio = require('twilio');
 const logger = require('../utils/logger');
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 const sendOTP = async (phoneNumber, otp) => {
   try {
@@ -37,7 +34,7 @@ const generateVoiceToken = (identity) => {
     process.env.TWILIO_ACCOUNT_SID,
     process.env.TWILIO_API_KEY || process.env.TWILIO_ACCOUNT_SID,
     process.env.TWILIO_API_SECRET || process.env.TWILIO_AUTH_TOKEN,
-    { identity }
+    { identity },
   );
   token.addGrant(voiceGrant);
   return token.toJwt();

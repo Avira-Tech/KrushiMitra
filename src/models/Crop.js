@@ -18,11 +18,13 @@ const cropSchema = new mongoose.Schema(
       enum: ['grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other'],
       default: 'other',
     },
-    images: [{
-      url: { type: String, required: true },
-      publicId: String,
-      isPrimary: { type: Boolean, default: false },
-    }],
+    images: [
+      {
+        url: { type: String, required: true },
+        publicId: String,
+        isPrimary: { type: Boolean, default: false },
+      },
+    ],
     quantity: {
       type: Number,
       required: [true, 'Quantity is required'],
@@ -51,8 +53,8 @@ const cropSchema = new mongoose.Schema(
       required: [true, 'Quality grade is required'],
     },
     qualityDetails: {
-      moisture: Number,      // %
-      protein: Number,       // %
+      moisture: Number, // %
+      protein: Number, // %
       foreignMatter: Number, // %
       description: String,
     },
@@ -138,12 +140,14 @@ const cropSchema = new mongoose.Schema(
     // Tags for search
     tags: [String],
     // Certifications
-    certifications: [{
-      name: String,
-      issuedBy: String,
-      validUntil: Date,
-      documentUrl: String,
-    }],
+    certifications: [
+      {
+        name: String,
+        issuedBy: String,
+        validUntil: Date,
+        documentUrl: String,
+      },
+    ],
     // Boost/Featured
     isFeatured: { type: Boolean, default: false },
     featuredUntil: Date,
@@ -152,11 +156,11 @@ const cropSchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 // Indexes
-cropSchema.index({ "location.coordinates": "2dsphere" });
+cropSchema.index({ 'location.coordinates': '2dsphere' });
 cropSchema.index({ farmer: 1, status: 1 });
 cropSchema.index({ name: 'text', description: 'text', tags: 'text' });
 cropSchema.index({ pricePerKg: 1 });

@@ -17,16 +17,16 @@ const sanitizeString = (str) => {
  */
 const sanitizeUrl = (url) => {
   if (!url) return '';
-  
+
   try {
     // Validate URL format
     const urlObj = new URL(url);
-    
+
     // Only allow http and https
     if (!['http:', 'https:'].includes(urlObj.protocol)) {
       throw new Error('Invalid protocol');
     }
-    
+
     return url;
   } catch (error) {
     console.warn('Invalid URL provided:', url);
@@ -39,11 +39,11 @@ const sanitizeUrl = (url) => {
  */
 const sanitizeObject = (obj) => {
   if (!obj || typeof obj !== 'object') return obj;
-  
+
   const sanitized = {};
   for (const key in obj) {
     const value = obj[key];
-    
+
     if (typeof value === 'string') {
       sanitized[key] = sanitizeString(value);
     } else if (typeof value === 'object' && value !== null) {
@@ -52,7 +52,7 @@ const sanitizeObject = (obj) => {
       sanitized[key] = value;
     }
   }
-  
+
   return sanitized;
 };
 

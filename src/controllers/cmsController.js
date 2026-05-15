@@ -1,12 +1,18 @@
 const GovtScheme = require('../models/GovtScheme');
 const HelpArticle = require('../models/HelpArticle');
-const { sendSuccess, sendError, sendNotFound } = require('../utils/apiResponse');
+const { sendSuccess, sendError, sendNotFound, sendPaginated } = require('../utils/apiResponse');
 const { logAdminAction } = require('./adminController');
+
+const { parsePagination } = require('../utils/helpers');
 
 // Schemes
 const getSchemes = async (req, res) => {
-  const schemes = await GovtScheme.find().sort({ priority: -1, createdAt: -1 });
-  sendSuccess(res, { data: schemes });
+  const { page, limit, skip } = parsePagination(req.query);
+  const [schemes, total] = await Promise.all([
+    GovtScheme.find().sort({ priority: -1, createdAt: -1 }).skip(skip).limit(limit),
+    GovtScheme.countDocuments(),
+  ]);
+  sendPaginated(res, { data: schemes, page, limit, total });
 };
 
 const upsertScheme = async (req, res) => {
@@ -18,8 +24,10 @@ const upsertScheme = async (req, res) => {
   } else {
     scheme = await GovtScheme.create(data);
   }
-  
-  await logAdminAction(req, 'CMS', id ? 'UPDATE_SCHEME' : 'CREATE_SCHEME', scheme._id, { name: scheme.name });
+
+  await logAdminAction(req, 'CMS', id ? 'UPDATE_SCHEME' : 'CREATE_SCHEME', scheme._id, {
+    name: scheme.name,
+  });
   sendSuccess(res, { message: 'Scheme saved successfully', data: scheme });
 };
 
@@ -32,9 +40,14 @@ const deleteScheme = async (req, res) => {
 // Help Articles
 const getArticles = async (req, res) => {
   const { category } = req.query;
+  const { page, limit, skip } = parsePagination(req.query);
   const query = category ? { category, isActive: true } : { isActive: true };
-  const articles = await HelpArticle.find(query).sort({ priority: -1, createdAt: -1 });
-  sendSuccess(res, { data: articles });
+  
+  const [articles, total] = await Promise.all([
+    HelpArticle.find(query).sort({ priority: -1, createdAt: -1 }).skip(skip).limit(limit),
+    HelpArticle.countDocuments(query),
+  ]);
+  sendPaginated(res, { data: articles, page, limit, total });
 };
 
 const upsertArticle = async (req, res) => {
@@ -47,8 +60,10 @@ const upsertArticle = async (req, res) => {
     data.author = req.user._id;
     article = await HelpArticle.create(data);
   }
-  
-  await logAdminAction(req, 'CMS', id ? 'UPDATE_ARTICLE' : 'CREATE_ARTICLE', article._id, { title: article.title });
+
+  await logAdminAction(req, 'CMS', id ? 'UPDATE_ARTICLE' : 'CREATE_ARTICLE', article._id, {
+    title: article.title,
+  });
   sendSuccess(res, { message: 'Article saved successfully', data: article });
 };
 
@@ -59,6 +74,10 @@ const deleteArticle = async (req, res) => {
 };
 
 module.exports = {
-  getSchemes, upsertScheme, deleteScheme,
-  getArticles, upsertArticle, deleteArticle
+  getSchemes,
+  upsertScheme,
+  deleteScheme,
+  getArticles,
+  upsertArticle,
+  deleteArticle,
 };

@@ -38,7 +38,7 @@ const validateCsrfToken = (req, res, next) => {
 
   // 2. Skip for critical public endpoints (webhooks)
   const publicEndpoints = ['/api/v1/payments/webhook', '/api/v1/auth/otp'];
-  if (publicEndpoints.some(e => req.path.startsWith(e))) {
+  if (publicEndpoints.some((e) => req.path.startsWith(e))) {
     return next();
   }
 
@@ -57,7 +57,7 @@ const validateCsrfToken = (req, res, next) => {
   // req.user is populated by protect/auth middleware
   if (!req.user?.csrfToken) {
     // If not authenticated, we allow the request if it's a login/register (already in publicEndpoints)
-    // or if the request is inherently unauthenticated. 
+    // or if the request is inherently unauthenticated.
     // However, for most apps, unauthenticated POSTs should still be protected.
     // For KrushiMitra, if no req.user, it means it's a public endpoint.
     return next();

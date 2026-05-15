@@ -21,18 +21,25 @@ const sanitizer = require('../utils/sanitizer');
 const NotificationService = require('../services/notificationService');
 const { transactionOfferAcceptance } = require('../services/transactionService');
 const socketService = require('../utils/socketService');
+const { parsePagination } = require('../utils/helpers');
+const { sendPaginated } = require('../utils/apiResponse');
 
 // ─── GET /api/v1/offers ───────────────────────────────────────────────────────
 const getOffers = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const userRole = req.user.role;
-    const { status, skip = 0, limit = 20 } = req.query;
+    const { status } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
 
     let filter = {};
     if (userRole === 'farmer') filter.farmer = userId;
     else if (userRole === 'buyer') filter.buyer = userId;
-    if (status) filter.status = status;
+
+    if (status) {
+      const statusArray = status.split(',');
+      filter.status = statusArray.length > 1 ? { $in: statusArray } : statusArray[0];
+    }
 
     const [offers, total] = await Promise.all([
       Offer.find(filter)
@@ -41,21 +48,12 @@ const getOffers = async (req, res) => {
         .populate('buyer', 'name phone email avatar rating')
         .populate('contract')
         .sort({ createdAt: -1 })
-        .skip(parseInt(skip))
-        .limit(parseInt(limit)),
+        .skip(skip)
+        .limit(limit),
       Offer.countDocuments(filter),
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: offers,
-      pagination: {
-        total,
-        skip: parseInt(skip),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
+    return sendPaginated(res, { data: offers, page, limit, total });
   } catch (err) {
     logger.error('getOffers error:', err);
     return res.status(500).json({ success: false, error: 'Failed to fetch offers' });
@@ -102,7 +100,7 @@ const makeOffer = async (req, res) => {
       cropId,
       quantity,
       pricePerKg,
-      pricePerUnit,       // backward-compat alias
+      pricePerUnit, // backward-compat alias
       deliveryLocation,
       deliveryDate,
       paymentTerms,
@@ -125,7 +123,10 @@ const makeOffer = async (req, res) => {
 
     const parsedQty = parseFloat(quantity);
     if (parsedQty > (crop.availableQuantity || crop.quantity)) {
-      return res.status(400).json({ success: false, error: `Only ${crop.availableQuantity || crop.quantity} kg available` });
+      return res.status(400).json({
+        success: false,
+        error: `Only ${crop.availableQuantity || crop.quantity} kg available`,
+      });
     }
 
     const buyer = await User.findById(buyerId);
@@ -150,13 +151,15 @@ const makeOffer = async (req, res) => {
       transportCost: transportCost || 0,
       status: 'pending',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      negotiationHistory: [{
-        by: 'buyer',
-        action: 'offer',
-        price: resolvedPrice,
-        message: message || '',
-        timestamp: new Date(),
-      }],
+      negotiationHistory: [
+        {
+          by: 'buyer',
+          action: 'offer',
+          price: resolvedPrice,
+          message: message || '',
+          timestamp: new Date(),
+        },
+      ],
     });
 
     await offer.populate([
@@ -173,9 +176,9 @@ const makeOffer = async (req, res) => {
         { participants: { $size: 2, $all: participants } },
         {
           $setOnInsert: { participants },
-          $set: { lastMessageAt: new Date() }
+          $set: { lastMessageAt: new Date() },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, new: true, setDefaultsOnInsert: true },
       );
 
       // 2. Create 'offer' Message
@@ -198,17 +201,17 @@ const makeOffer = async (req, res) => {
       socketService.emitToRoom(`conversation:${conversation._id}`, 'message:new', {
         _id: chatMessage._id,
         conversationId: conversation._id,
-        sender: { 
-          _id: buyerId, 
+        sender: {
+          _id: buyerId,
           name: buyer.name,
-          avatar: buyer.avatar?.url
+          avatar: buyer.avatar?.url,
         },
         recipient: crop.farmer._id.toString(),
         content: chatMessage.content,
         messageType: 'offer',
         offer: offer, // Full populated offer object
         createdAt: chatMessage.createdAt,
-        isRead: false
+        isRead: false,
       });
     } catch (chatErr) {
       logger.error('Failed to create chat message for offer:', chatErr);
@@ -252,9 +255,9 @@ const acceptOffer = async (req, res) => {
     const isFarmerAccepting = contract.farmer.toString() === userId.toString();
     const recipientId = isFarmerAccepting ? contract.buyer : contract.farmer;
     const title = isFarmerAccepting ? '✅ Offer Accepted! Pay Now' : '🤝 Counter-Offer Accepted!';
-    const body = isFarmerAccepting 
-        ? `The farmer accepted your offer for ${contract.terms.cropName}. Proceed to choose a payment method.`
-        : `The buyer accepted your counter-offer for ${contract.terms.cropName}. Contract is now active.`;
+    const body = isFarmerAccepting
+      ? `The farmer accepted your offer for ${contract.terms.cropName}. Proceed to choose a payment method.`
+      : `The buyer accepted your counter-offer for ${contract.terms.cropName}. Contract is now active.`;
 
     NotificationService.create({
       recipientId,
@@ -298,8 +301,10 @@ const acceptOffer = async (req, res) => {
       'Offer not found',
       'Offer is already',
       'Offer has expired',
-      'Insufficient crop quantity'
-    ].some(m => err.message.includes(m)) ? err.message : 'Failed to accept offer';
+      'Insufficient crop quantity',
+    ].some((m) => err.message.includes(m))
+      ? err.message
+      : 'Failed to accept offer';
 
     return res.status(err.message.includes('Insufficient') ? 409 : 500).json({
       success: false,
@@ -324,14 +329,19 @@ const rejectOffer = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Not authorized to reject this offer' });
     }
     if (!['pending', 'countered', 'accepted'].includes(offer.status)) {
-      return res.status(400).json({ success: false, error: `Cannot reject a ${offer.status} offer` });
+      return res
+        .status(400)
+        .json({ success: false, error: `Cannot reject a ${offer.status} offer` });
     }
 
     offer.status = 'rejected';
     offer.rejectionReason = reason ? sanitizer.sanitizeString(reason) : undefined;
     offer.rejectedBy = isFarmer ? 'farmer' : 'buyer';
     offer.negotiationHistory.push({
-      by: isFarmer ? 'farmer' : 'buyer', action: 'reject', price: offer.pricePerKg, timestamp: new Date(),
+      by: isFarmer ? 'farmer' : 'buyer',
+      action: 'reject',
+      price: offer.pricePerKg,
+      timestamp: new Date(),
     });
     await offer.save();
 
@@ -342,7 +352,9 @@ const rejectOffer = async (req, res) => {
         cancellationReason: reason || 'Buyer rejected after acceptance',
         cancelledBy: userId,
       });
-      await Crop.findByIdAndUpdate(offer.crop, { $inc: { availableQuantity: offer.quantity, quantity: offer.quantity } });
+      await Crop.findByIdAndUpdate(offer.crop, {
+        $inc: { availableQuantity: offer.quantity, quantity: offer.quantity },
+      });
     }
 
     const recipientId = isFarmer ? offer.buyer : offer.farmer;
@@ -393,8 +405,11 @@ const counterOffer = async (req, res) => {
     };
     offer.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Reset expiry to 7 days
     offer.negotiationHistory.push({
-      by: isFarmer ? 'farmer' : 'buyer', action: 'counter',
-      price: counterPrice, message: message, timestamp: new Date(),
+      by: isFarmer ? 'farmer' : 'buyer',
+      action: 'counter',
+      price: counterPrice,
+      message: message,
+      timestamp: new Date(),
     });
     await offer.save();
 
@@ -430,7 +445,9 @@ const cancelOffer = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Only the buyer can cancel' });
     }
     if (!['pending', 'countered'].includes(offer.status)) {
-      return res.status(400).json({ success: false, error: `Cannot cancel a ${offer.status} offer` });
+      return res
+        .status(400)
+        .json({ success: false, error: `Cannot cancel a ${offer.status} offer` });
     }
 
     offer.status = 'cancelled';
@@ -444,4 +461,12 @@ const cancelOffer = async (req, res) => {
   }
 };
 
-module.exports = { getOffers, getOfferDetail, makeOffer, acceptOffer, rejectOffer, counterOffer, cancelOffer };
+module.exports = {
+  getOffers,
+  getOfferDetail,
+  makeOffer,
+  acceptOffer,
+  rejectOffer,
+  counterOffer,
+  cancelOffer,
+};

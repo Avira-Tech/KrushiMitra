@@ -7,7 +7,10 @@ const { sendSuccess, sendError, sendNotFound } = require('../utils/apiResponse')
 const logger = require('../utils/logger');
 const NotificationService = require('../services/notificationService');
 const { sendOTP } = require('../config/sms');
-const { transactionPaymentRelease, transactionCodPayment } = require('../services/transactionService');
+const {
+  transactionPaymentRelease,
+  transactionCodPayment,
+} = require('../services/transactionService');
 
 /**
  * Register a new truck for a logistics partner
@@ -15,10 +18,13 @@ const { transactionPaymentRelease, transactionCodPayment } = require('../service
 exports.registerTruck = async (req, res) => {
   try {
     const { plateNumber, vehicleType, capacityKg, driverName, driverPhone, pricePerKm } = req.body;
-    
+
     const existingTruck = await Truck.findOne({ plateNumber });
     if (existingTruck) {
-      return sendError(res, { message: 'Truck with this plate number already registered', statusCode: 400 });
+      return sendError(res, {
+        message: 'Truck with this plate number already registered',
+        statusCode: 400,
+      });
     }
 
     const truck = await Truck.create({
@@ -29,7 +35,7 @@ exports.registerTruck = async (req, res) => {
       driverName,
       driverPhone,
       pricePerKm: pricePerKm || 0,
-      status: 'available'
+      status: 'available',
     });
 
     return sendSuccess(res, { message: 'Truck registered successfully.', data: truck });
@@ -59,7 +65,7 @@ exports.deleteTruck = async (req, res) => {
   try {
     const truck = await Truck.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
     if (!truck) return sendNotFound(res, 'Truck not found or unauthorized');
-    
+
     return sendSuccess(res, { message: 'Truck deleted successfully' });
   } catch (err) {
     logger.error('deleteTruck error:', err);
@@ -77,10 +83,10 @@ exports.getAvailableJobs = async (req, res) => {
       status: { $in: ['active', 'confirmed'] },
       'transport.provider': 'local',
       $or: [
-          { 'transport.logisticsPartner': { $exists: false } },
-          { 'transport.logisticsPartner': null },
-          { 'transport.logisticsPartner': req.user._id, 'delivery.status': 'pending' }
-      ]
+        { 'transport.logisticsPartner': { $exists: false } },
+        { 'transport.logisticsPartner': null },
+        { 'transport.logisticsPartner': req.user._id, 'delivery.status': 'pending' },
+      ],
     }).populate('farmer buyer crop');
 
     return sendSuccess(res, { data: jobs });
@@ -96,20 +102,23 @@ exports.getAvailableJobs = async (req, res) => {
 exports.acceptJob = async (req, res) => {
   try {
     const { contractId, truckId } = req.body;
-    
+
     const truck = await Truck.findOne({ _id: truckId, owner: req.user._id });
     if (!truck) return sendNotFound(res, 'Truck not found or unauthorized');
 
     const contract = await Contract.findById(contractId);
     if (!contract) return sendNotFound(res, 'Contract not found');
-    
-    if (contract.transport.logisticsPartner && contract.transport.logisticsPartner.toString() !== req.user._id.toString()) {
+
+    if (
+      contract.transport.logisticsPartner &&
+      contract.transport.logisticsPartner.toString() !== req.user._id.toString()
+    ) {
       return sendError(res, { message: 'Job already taken by another partner', statusCode: 400 });
     }
 
     // If already scheduled, no need to re-accept
     if (contract.delivery.status === 'scheduled') {
-        return sendError(res, { message: 'Job is already scheduled', statusCode: 400 });
+      return sendError(res, { message: 'Job is already scheduled', statusCode: 400 });
     }
 
     // Generate OTPs for pickup and delivery
@@ -121,9 +130,9 @@ exports.acceptJob = async (req, res) => {
     contract.transport.pickupOtp = pickupOtp;
     contract.transport.deliveryOtp = deliveryOtp;
     contract.delivery.status = 'scheduled';
-    
+
     await contract.save();
-    
+
     // Set truck status to busy
     truck.status = 'busy';
     await truck.save();
@@ -133,25 +142,28 @@ exports.acceptJob = async (req, res) => {
 
     // Notify Farmer of Job Assigned (Not OTP yet)
     await NotificationService.create({
-        recipientId: fullContract.farmer._id,
-        type: 'logistics_assigned',
-        title: '🚚 Truck Assigned',
-        body: `A logistics partner has accepted the job for ${fullContract.terms.cropName}.`,
-        refModel: 'Contract',
-        refId: fullContract._id,
+      recipientId: fullContract.farmer._id,
+      type: 'logistics_assigned',
+      title: '🚚 Truck Assigned',
+      body: `A logistics partner has accepted the job for ${fullContract.terms.cropName}.`,
+      refModel: 'Contract',
+      refId: fullContract._id,
     }).catch(logger.error);
 
     // Notify Buyer of Job Assigned (Not OTP yet)
     await NotificationService.create({
-        recipientId: fullContract.buyer._id,
-        type: 'logistics_assigned',
-        title: '🚚 Truck Assigned',
-        body: `A logistics partner is assigned to your order of ${fullContract.terms.cropName}.`,
-        refModel: 'Contract',
-        refId: fullContract._id,
+      recipientId: fullContract.buyer._id,
+      type: 'logistics_assigned',
+      title: '🚚 Truck Assigned',
+      body: `A logistics partner is assigned to your order of ${fullContract.terms.cropName}.`,
+      refModel: 'Contract',
+      refId: fullContract._id,
     }).catch(logger.error);
 
-    return sendSuccess(res, { message: 'Job accepted successfully. OTPs sent to parties.', data: { pickupOtp } });
+    return sendSuccess(res, {
+      message: 'Job accepted successfully. OTPs sent to parties.',
+      data: { pickupOtp },
+    });
   } catch (err) {
     logger.error('acceptJob error:', err);
     return sendError(res, { message: 'Failed to accept job', statusCode: 500 });
@@ -174,7 +186,8 @@ exports.resendOtp = async (req, res) => {
     const otp = type === 'pickup' ? contract.transport.pickupOtp : contract.transport.deliveryOtp;
     const recipient = type === 'pickup' ? contract.farmer : contract.buyer;
 
-    if (!otp) return sendError(res, { message: 'No OTP generated for this contract yet', statusCode: 400 });
+    if (!otp)
+      return sendError(res, { message: 'No OTP generated for this contract yet', statusCode: 400 });
 
     if (recipient.phone) {
       const phone = recipient.phone.startsWith('+') ? recipient.phone : `+91${recipient.phone}`;
@@ -182,7 +195,9 @@ exports.resendOtp = async (req, res) => {
     }
     await NotificationService.notifyOtp(contract, recipient._id, type, otp);
 
-    return sendSuccess(res, { message: `OTP resent to ${type === 'pickup' ? 'Farmer' : 'Buyer'} successfully.` });
+    return sendSuccess(res, {
+      message: `OTP resent to ${type === 'pickup' ? 'Farmer' : 'Buyer'} successfully.`,
+    });
   } catch (err) {
     logger.error('resendOtp error:', err);
     return sendError(res, { message: 'Failed to resend OTP', statusCode: 500 });
@@ -196,7 +211,7 @@ exports.verifyPickup = async (req, res) => {
   try {
     const { contractId, otp } = req.body;
     const contract = await Contract.findById(contractId);
-    
+
     if (!contract) return sendNotFound(res, 'Contract not found');
     if (contract.transport.logisticsPartner.toString() !== req.user._id.toString()) {
       return sendError(res, { message: 'Unauthorized', statusCode: 403 });
@@ -224,7 +239,7 @@ exports.verifyDelivery = async (req, res) => {
   try {
     const { contractId, otp } = req.body;
     const contract = await Contract.findById(contractId);
-    
+
     if (!contract) return sendNotFound(res, 'Contract not found');
     if (contract.transport.logisticsPartner.toString() !== req.user._id.toString()) {
       return sendError(res, { message: 'Unauthorized', statusCode: 403 });
@@ -236,7 +251,9 @@ exports.verifyDelivery = async (req, res) => {
 
     // Determine if we need to release escrow or handle COD
     if (contract.payment.method === 'cod') {
-      await transactionCodPayment(contractId, { notes: 'Auto-released upon logistics verification' });
+      await transactionCodPayment(contractId, {
+        notes: 'Auto-released upon logistics verification',
+      });
     } else if (['in_escrow', 'requires_capture', 'authorized'].includes(contract.payment.status)) {
       // Release from escrow (Stripe, etc.)
       await transactionPaymentRelease(contractId);
@@ -247,17 +264,29 @@ exports.verifyDelivery = async (req, res) => {
       contract.status = 'completed';
       await contract.save();
     }
-    
+
     // Free the truck
     if (contract.transport.truck) {
       await Truck.findByIdAndUpdate(contract.transport.truck, { status: 'available' });
     }
 
     // Notify parties of completion
-    await NotificationService.notifyDeliveryUpdate(contract, contract.farmer, 'delivered', 'Crop delivered successfully. Payment has been released.');
-    await NotificationService.notifyDeliveryUpdate(contract, contract.buyer, 'delivered', 'Crop received. Thank you for your business!');
+    await NotificationService.notifyDeliveryUpdate(
+      contract,
+      contract.farmer,
+      'delivered',
+      'Crop delivered successfully. Payment has been released.',
+    );
+    await NotificationService.notifyDeliveryUpdate(
+      contract,
+      contract.buyer,
+      'delivered',
+      'Crop received. Thank you for your business!',
+    );
 
-    return sendSuccess(res, { message: 'Delivery verified successfully. Payment released and job completed.' });
+    return sendSuccess(res, {
+      message: 'Delivery verified successfully. Payment released and job completed.',
+    });
   } catch (err) {
     logger.error('verifyDelivery error:', err);
     return sendError(res, { message: err.message || 'Verification failed', statusCode: 500 });
@@ -275,7 +304,7 @@ exports.getSuggestedTrucks = async (req, res) => {
     const trucks = await Truck.find({
       isApproved: true,
       status: 'available',
-      capacityKg: { $gte: Number(quantityKg) }
+      capacityKg: { $gte: Number(quantityKg) },
     }).populate('owner', 'name rating');
 
     return sendSuccess(res, { data: trucks });

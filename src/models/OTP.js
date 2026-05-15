@@ -22,7 +22,7 @@ const otpSchema = new mongoose.Schema(
       index: { expires: 0 }, // Auto-delete after expiration
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.models.OTP || mongoose.model('OTP', otpSchema);

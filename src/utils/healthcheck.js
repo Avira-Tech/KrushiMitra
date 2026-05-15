@@ -1,7 +1,7 @@
 'use strict';
 /**
  * healthcheck.js
- * 
+ *
  * A lightweight HTTP client to check the backend's status.
  * Used by Docker HEALTHCHECK to verify the container is alive.
  */

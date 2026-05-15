@@ -66,13 +66,36 @@ const seed = async () => {
 
   // 2. Default Settings
   const defaultSettings = [
-    { key: 'platform_commission_rate', value: 0.02, description: 'Default platform commission fee (e.g. 0.02 for 2%)' },
-    { key: 'maintenance_mode', value: false, description: 'Disable platform access for maintenance' },
-    { key: 'maintenance_until', value: null, description: 'Time until maintenance mode ends (ISO String)' },
-    { key: 'maintenance_message', value: 'Krushimitra is undergoing scheduled maintenance to improve our services.', description: 'Message to show users during maintenance' },
-    { key: 'minimum_payout', value: 500, description: 'Minimum balance required for farmer payout (₹)' },
-    { key: 'gst_rate', value: 0.18, description: 'Applicable GST on platform fees (e.g. 0.18 for 18%)' }
-
+    {
+      key: 'platform_commission_rate',
+      value: 0.02,
+      description: 'Default platform commission fee (e.g. 0.02 for 2%)',
+    },
+    {
+      key: 'maintenance_mode',
+      value: false,
+      description: 'Disable platform access for maintenance',
+    },
+    {
+      key: 'maintenance_until',
+      value: null,
+      description: 'Time until maintenance mode ends (ISO String)',
+    },
+    {
+      key: 'maintenance_message',
+      value: 'Krushimitra is undergoing scheduled maintenance to improve our services.',
+      description: 'Message to show users during maintenance',
+    },
+    {
+      key: 'minimum_payout',
+      value: 500,
+      description: 'Minimum balance required for farmer payout (₹)',
+    },
+    {
+      key: 'gst_rate',
+      value: 0.18,
+      description: 'Applicable GST on platform fees (e.g. 0.18 for 18%)',
+    },
   ];
 
   for (const setting of defaultSettings) {

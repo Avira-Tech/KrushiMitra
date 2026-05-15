@@ -17,7 +17,9 @@ exports.predictPrice = async (req, res) => {
     const { cropName, currentMandiPrice, quality, description } = req.body;
 
     if (!cropName) {
-      return res.status(400).json({ success: false, message: 'cropName is required for prediction' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'cropName is required for prediction' });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -27,8 +29,8 @@ exports.predictPrice = async (req, res) => {
         success: true,
         data: {
           suggestedPrice: Math.round(dummySuggestion),
-          reasoning: "AI API Key not configured. Using standard baseline plus 5% margin."
-        }
+          reasoning: 'AI API Key not configured. Using standard baseline plus 5% margin.',
+        },
       });
     }
 
@@ -64,24 +66,27 @@ exports.predictPrice = async (req, res) => {
       parsedData = JSON.parse(jsonMatch[1]);
     } else {
       // Try parsing the text directly
-      const fallbackClean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const fallbackClean = text
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .trim();
       parsedData = JSON.parse(fallbackClean);
     }
 
     if (!parsedData || !parsedData.suggestedPrice) {
-      throw new Error("Failed to parse valid price from AI.");
+      throw new Error('Failed to parse valid price from AI.');
     }
 
     res.status(200).json({
       success: true,
-      data: parsedData
+      data: parsedData,
     });
   } catch (error) {
     console.error('AI Prediction error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to generate AI price prediction',
-      error: process.env.NODE_ENV === 'development' ? error.toString() : 'AI Error'
+      error: process.env.NODE_ENV === 'development' ? error.toString() : 'AI Error',
     });
   }
 };

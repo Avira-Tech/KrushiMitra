@@ -10,9 +10,16 @@ const getSettings = async (req, res) => {
 
 const updateSetting = async (req, res) => {
   let { key, value, description } = req.body;
-  
+
   // Ensure numeric keys are stored as numbers
-  if (key.includes('rate') || key.includes('limit') || key.includes('minimum') || key.includes('payout') || key.includes('gst') || key === 'app_rate') {
+  if (
+    key.includes('rate') ||
+    key.includes('limit') ||
+    key.includes('minimum') ||
+    key.includes('payout') ||
+    key.includes('gst') ||
+    key === 'app_rate'
+  ) {
     value = parseFloat(value);
     if (isNaN(value)) return sendError(res, { message: 'Value must be a number', statusCode: 400 });
   }
@@ -20,9 +27,9 @@ const updateSetting = async (req, res) => {
   const setting = await SystemSetting.findOneAndUpdate(
     { key },
     { value, description, updatedBy: req.user._id },
-    { new: true, upsert: true }
+    { new: true, upsert: true },
   );
-  
+
   await logAdminAction(req, 'Settings', 'UPDATE_SETTING', setting._id, { key, value });
   sendSuccess(res, { message: 'Setting updated successfully', data: setting });
 };

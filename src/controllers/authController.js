@@ -3,8 +3,21 @@ const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const { redis, cache } = require('../config/redis');
 const { sendOTP } = require('../config/sms');
 const { sendEmail } = require('../utils/emailService');
-const { generateOTP, sanitizePhone, isValidIndianPhone, hashString, generateFarmerId } = require('../utils/helpers');
-const { sendSuccess, sendCreated, sendError, sendUnauthorized, sendForbidden, sendValidationError } = require('../utils/apiResponse');
+const {
+  generateOTP,
+  sanitizePhone,
+  isValidIndianPhone,
+  hashString,
+  generateFarmerId,
+} = require('../utils/helpers');
+const {
+  sendSuccess,
+  sendCreated,
+  sendError,
+  sendUnauthorized,
+  sendForbidden,
+  sendValidationError,
+} = require('../utils/apiResponse');
 const NotificationService = require('../services/notificationService');
 const { uploadBufferToCloudinary } = require('../config/cloudinary');
 const logger = require('../utils/logger');
@@ -26,7 +39,11 @@ const verifyOtpHelper = async (phone, otp) => {
   if (isLocked) {
     const ttl = await redis.ttl(LOCKOUT_KEY);
     const remaining = Math.ceil(ttl / 60);
-    return { success: false, error: `Too many failed attempts. Try again in ${remaining} minutes.`, status: 403 };
+    return {
+      success: false,
+      error: `Too many failed attempts. Try again in ${remaining} minutes.`,
+      status: 403,
+    };
   }
 
   const user = await User.findOne({
@@ -34,21 +51,24 @@ const verifyOtpHelper = async (phone, otp) => {
       { phone: normalizedPhone },
       { phone: `+91${normalizedPhone}` },
       { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` }
-    ]
+      { phone: `0${normalizedPhone}` },
+    ],
   }).select('+otp +refreshToken +securityStatus');
   if (!user) return { success: false, error: 'User not found', status: 401 };
 
   // Check DB level block (e.g. 12hr block from PIN failures)
   if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
-    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
-    return { 
-      success: false, 
-      error: `Security Alert: Your account is blocked for ${remainingHours} more hours due to multiple incorrect PIN attempts.`, 
-      status: 403 
+    const remainingHours = Math.ceil(
+      (user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60),
+    );
+    return {
+      success: false,
+      error: `Security Alert: Your account is blocked for ${remainingHours} more hours due to multiple incorrect PIN attempts.`,
+      status: 403,
     };
   }
-  if (!user.otp?.code || !user.otp?.expiresAt) return { success: false, error: 'No active OTP. Request a new one.', status: 401 };
+  if (!user.otp?.code || !user.otp?.expiresAt)
+    return { success: false, error: 'No active OTP. Request a new one.', status: 401 };
 
   // 2. Check Expiry
   if (new Date() > user.otp.expiresAt) return { success: false, error: 'OTP expired', status: 401 };
@@ -65,7 +85,11 @@ const verifyOtpHelper = async (phone, otp) => {
       await redis.set(LOCKOUT_KEY, 'true', 'EX', 15 * 60);
       await redis.del(ATTEMPTS_KEY);
       logger.warn(`User ${normalizedPhone} locked out after 5 failed attempts.`);
-      return { success: false, error: 'Account locked for 15 minutes due to too many failed attempts.', status: 403 };
+      return {
+        success: false,
+        error: 'Account locked for 15 minutes due to too many failed attempts.',
+        status: 403,
+      };
     }
 
     // Also update DB for fallback/audit
@@ -75,7 +99,7 @@ const verifyOtpHelper = async (phone, otp) => {
     return {
       success: false,
       error: `Invalid OTP. ${remaining} attempts remaining.`,
-      status: 401
+      status: 401,
     };
   }
 
@@ -92,7 +116,9 @@ const checkUser = async (req, res) => {
   const normalizedPhone = sanitizePhone(phone);
 
   if (!isValidIndianPhone(normalizedPhone)) {
-    return sendValidationError(res, [{ field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' }]);
+    return sendValidationError(res, [
+      { field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' },
+    ]);
   }
 
   // Query multiple formats to catch legacy or variably formatted numbers
@@ -101,16 +127,16 @@ const checkUser = async (req, res) => {
       { phone: normalizedPhone },
       { phone: `+91${normalizedPhone}` },
       { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` }
-    ]
+      { phone: `0${normalizedPhone}` },
+    ],
   });
 
   return sendSuccess(res, {
     data: {
       exists: !!(user && user.name), // Registered if name exists
       role: user?.role || null,
-      phone: normalizedPhone
-    }
+      phone: normalizedPhone,
+    },
   });
 };
 
@@ -139,7 +165,9 @@ const sendOtp = async (req, res) => {
   const normalizedPhone = sanitizePhone(phone);
 
   if (!isValidIndianPhone(normalizedPhone)) {
-    return sendValidationError(res, [{ field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' }]);
+    return sendValidationError(res, [
+      { field: 'phone', message: 'Enter a valid 10-digit Indian mobile number' },
+    ]);
   }
 
   let user = await User.findOne({
@@ -147,20 +175,27 @@ const sendOtp = async (req, res) => {
       { phone: normalizedPhone },
       { phone: `+91${normalizedPhone}` },
       { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` }
-    ]
+      { phone: `0${normalizedPhone}` },
+    ],
   }).select('+otp +securityStatus');
   const isNewUser = !user;
-
   // 1. Check Security Block (e.g. 12hr block from PIN failures)
   if (user?.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
-    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
-    return sendForbidden(res, `Your account is temporarily blocked for security reasons. Please try again after ${remainingHours} hours.`);
+    const remainingHours = Math.ceil(
+      (user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60),
+    );
+    return sendForbidden(
+      res,
+      `Your account is temporarily blocked for security reasons. Please try again after ${remainingHours} hours.`,
+    );
   }
 
   // 2. Rate limiting: max 5 OTPs per 20 minutes (hardened)
   if (user?.otp?.attempts >= 5 && user.otp.expiresAt > new Date(Date.now() - 20 * 60 * 1000)) {
-    return sendError(res, { message: 'Too many OTP requests. Please wait 15 minutes.', statusCode: 429 });
+    return sendError(res, {
+      message: 'Too many OTP requests. Please wait 15 minutes.',
+      statusCode: 429,
+    });
   }
 
   const otp = generateOTP();
@@ -178,13 +213,14 @@ const sendOtp = async (req, res) => {
     await User.findOneAndUpdate(
       { phone: normalizedPhone },
       { $set: { phone: normalizedPhone, role: role || 'farmer', ...otpData } },
-      { upsert: true }
+      { upsert: true },
     );
   }
 
   await sendOTP(`+91${normalizedPhone}`, otp);
   logger.info(`OTP sent to ${normalizedPhone}`);
-  console.log("OTP", otp);
+  console.log("OTP sent to", otp);
+
   return sendSuccess(res, {
     message: `OTP sent to ${normalizedPhone}`,
     data: { phone: normalizedPhone, isNewUser, expiresIn: 300 },
@@ -201,7 +237,7 @@ const sendEmailOtp = async (req, res) => {
   if (existingUser && existingUser.name) {
     return sendError(res, {
       message: 'Email already registered. Please login using your phone number.',
-      statusCode: 409
+      statusCode: 409,
     });
   }
 
@@ -216,7 +252,7 @@ const sendEmailOtp = async (req, res) => {
   await User.findOneAndUpdate(
     { email: email.toLowerCase() },
     { $set: otpData },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 
   try {
@@ -235,7 +271,7 @@ const sendEmailOtp = async (req, res) => {
           <hr style="border: none; border-top: 1px solid #EEE; margin: 20px 0;" />
           <p style="font-size: 12px; color: #999;">KrushiMitra Team</p>
         </div>
-      `
+      `,
     });
 
     return sendSuccess(res, { message: `Verification code sent to ${email}` });
@@ -248,18 +284,22 @@ const sendEmailOtp = async (req, res) => {
 // ─── VERIFY EMAIL OTP ──────────────────────────────────────────────────────────────────
 const verifyEmailOtp = async (req, res) => {
   const { email, otp } = req.body;
-  if (!email || !otp) return sendValidationError(res, [{ field: 'otp', message: 'Email and OTP required' }]);
+  if (!email || !otp)
+    return sendValidationError(res, [{ field: 'otp', message: 'Email and OTP required' }]);
 
   const user = await User.findOne({ email: email.toLowerCase() }).select('+emailOtp');
-  if (!user || !user.emailOtp?.code) return sendError(res, { message: 'Verification code not found' });
+  if (!user || !user.emailOtp?.code)
+    return sendError(res, { message: 'Verification code not found' });
 
-  if (new Date() > user.emailOtp.expiresAt) return sendError(res, { message: 'Verification code expired' });
+  if (new Date() > user.emailOtp.expiresAt)
+    return sendError(res, { message: 'Verification code expired' });
 
-  if (user.emailOtp.code !== hashString(otp)) return sendError(res, { message: 'Invalid verification code' });
+  if (user.emailOtp.code !== hashString(otp))
+    return sendError(res, { message: 'Invalid verification code' });
 
   await User.findByIdAndUpdate(user._id, {
     $set: { isEmailVerified: true },
-    $unset: { 'emailOtp.code': 1, 'emailOtp.expiresAt': 1 }
+    $unset: { 'emailOtp.code': 1, 'emailOtp.expiresAt': 1 },
   });
 
   return sendSuccess(res, { message: 'Email verified successfully' });
@@ -285,7 +325,9 @@ const verifyPin = async (req, res) => {
 
   // 1. Check Block
   if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
-    const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
+    const remainingHours = Math.ceil(
+      (user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60),
+    );
     return sendForbidden(res, `Security Block: Try again after ${remainingHours} hours.`);
   }
 
@@ -298,7 +340,10 @@ const verifyPin = async (req, res) => {
     isValid = await user.matchSecurityPin(pin);
   } else {
     if (!user.transactionPin) {
-      return sendError(res, { message: 'Transaction PIN not set. Please set it in Bank Details.', statusCode: 400 });
+      return sendError(res, {
+        message: 'Transaction PIN not set. Please set it in Bank Details.',
+        statusCode: 400,
+      });
     }
     isValid = await user.matchTransactionPin(pin);
   }
@@ -311,24 +356,27 @@ const verifyPin = async (req, res) => {
       update['securityStatus.blockedUntil'] = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours
       update['securityStatus.blockReason'] = 'Too many incorrect PIN attempts';
       await User.findByIdAndUpdate(userId, { $set: update });
-      
+
       // Invalidate cache
       await cache.del(`user:status:${userId}`);
 
       logger.warn(`User ${userId} blocked for 12 hours after 3 failed PIN attempts.`);
-      return sendForbidden(res, 'Security Alert: 3 incorrect PIN attempts. Your account (login & transactions) is blocked for 12 hours.');
+      return sendForbidden(
+        res,
+        'Security Alert: 3 incorrect PIN attempts. Withdrawals and Bank Details are blocked for 12 hours.',
+      );
     }
 
     await User.findByIdAndUpdate(userId, { $set: update });
-    return sendError(res, { 
-      message: `Security Warning: ${attempts} attempt(s) failed. If you enter 3 wrong PINs, your account will be blocked for 12 hours. You have ${3 - attempts} chance(s) remaining.`, 
-      statusCode: 401 
+    return sendError(res, {
+      message: `Security Warning: ${attempts} attempt(s) failed. If you enter 3 wrong PINs, your account will be blocked for 12 hours. You have ${3 - attempts} chance(s) remaining.`,
+      statusCode: 401,
     });
   }
 
   // 3. Success: Reset attempts
-  await User.findByIdAndUpdate(userId, { 
-    $set: { 'securityStatus.pinWrongAttempts': 0 } 
+  await User.findByIdAndUpdate(userId, {
+    $set: { 'securityStatus.pinWrongAttempts': 0 },
   });
 
   return sendSuccess(res, { message: 'PIN verified' });
@@ -348,7 +396,12 @@ const verifyOtp = async (req, res) => {
   // Success: Clear OTP data and reset wrong attempts
   const update = {
     $unset: { 'otp.code': 1, 'otp.expiresAt': 1, 'otp.lockedUntil': 1 },
-    $set: { 'otp.attempts': 0, 'otp.wrongAttempts': 0, lastLoginAt: new Date(), isPhoneVerified: true },
+    $set: {
+      'otp.attempts': 0,
+      'otp.wrongAttempts': 0,
+      lastLoginAt: new Date(),
+      isPhoneVerified: true,
+    },
   };
 
   if (fcmToken) {
@@ -377,7 +430,21 @@ const verifyOtp = async (req, res) => {
 
 // ─── REGISTER ─────────────────────────────────────────────────────────────────────────────
 const register = async (req, res) => {
-  const { name, phone, email, role, farmerId, aadhaarNumber, companyName, gstNumber, businessAddress, location, language, otp, fcmToken } = req.body;
+  const {
+    name,
+    phone,
+    email,
+    role,
+    farmerId,
+    aadhaarNumber,
+    companyName,
+    gstNumber,
+    businessAddress,
+    location,
+    language,
+    otp,
+    fcmToken,
+  } = req.body;
   const normalizedPhone = sanitizePhone(phone);
 
   // Verify OTP via helper, or check if already verified in Step 1
@@ -402,12 +469,18 @@ const register = async (req, res) => {
 
   // Check if already registered with name
   if (tempUser.name) {
-    return sendError(res, { message: 'Phone number already registered. Please login.', statusCode: 409 });
+    return sendError(res, {
+      message: 'Phone number already registered. Please login.',
+      statusCode: 409,
+    });
   }
 
   // Check email uniqueness
   if (email) {
-    const emailExists = await User.findOne({ email: email.toLowerCase(), _id: { $ne: tempUser._id } });
+    const emailExists = await User.findOne({
+      email: email.toLowerCase(),
+      _id: { $ne: tempUser._id },
+    });
     if (emailExists) {
       return sendError(res, { message: 'Email already registered', statusCode: 409 });
     }
@@ -473,7 +546,10 @@ const register = async (req, res) => {
     updateData.$addToSet = { fcmTokens: fcmToken };
   }
 
-  const user = await User.findByIdAndUpdate(tempUser._id, updateData, { new: true, runValidators: true });
+  const user = await User.findByIdAndUpdate(tempUser._id, updateData, {
+    new: true,
+    runValidators: true,
+  });
 
   const { accessToken, refreshToken, csrfToken, expiresIn } = generateTokenPair(user);
   await User.findByIdAndUpdate(user._id, { refreshToken: hashString(refreshToken) });
@@ -488,7 +564,7 @@ const register = async (req, res) => {
         title: '👤 New User Registration',
         body: `${name} registered as ${role}. Verification required.`,
         priority: 'normal',
-      }
+      },
     ).catch(() => { });
   }
 
@@ -521,13 +597,11 @@ const googleAuth = async (req, res) => {
     const googleIdStr = String(googleId);
     const emailStr = String(email).toLowerCase();
 
-    let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] }).select('+securityStatus');
+    let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] }).select(
+      '+securityStatus',
+    );
 
-    // Check Security Block
-    if (user?.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
-      const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
-      return sendForbidden(res, `Security Block: Your account is restricted for ${remainingHours} more hours due to security reasons.`);
-    }
+    // Removed security block check to allow login/navigation while restricted
 
     if (!user) {
       user = await User.create({
@@ -546,7 +620,10 @@ const googleAuth = async (req, res) => {
     }
 
     const { accessToken, refreshToken } = generateTokenPair(user);
-    await User.findByIdAndUpdate(user._id, { refreshToken: hashString(refreshToken), lastLoginAt: new Date() });
+    await User.findByIdAndUpdate(user._id, {
+      refreshToken: hashString(refreshToken),
+      lastLoginAt: new Date(),
+    });
 
     return sendSuccess(res, {
       message: 'Google authentication successful',
@@ -568,11 +645,7 @@ const refreshToken = async (req, res) => {
     const user = await User.findById(decoded.id).select('+refreshToken +securityStatus');
     if (!user) return sendUnauthorized(res, 'User not found');
 
-    // Check Security Block
-    if (user.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
-      const remainingHours = Math.ceil((user.securityStatus.blockedUntil - new Date()) / (1000 * 60 * 60));
-      return sendForbidden(res, `Security Block: Your session cannot be refreshed for ${remainingHours} more hours.`);
-    }
+    // Removed security block check to allow session refresh while restricted
 
     // Token Rotation & Reuse Detection
     const hashedToken = hashString(token);
@@ -584,12 +657,17 @@ const refreshToken = async (req, res) => {
       return sendUnauthorized(res, 'Security violation: please login again');
     }
 
-    const { accessToken, refreshToken: newRefreshToken, csrfToken, expiresIn } = generateTokenPair(user);
+    const {
+      accessToken,
+      refreshToken: newRefreshToken,
+      csrfToken,
+      expiresIn,
+    } = generateTokenPair(user);
 
     // Rotate: Issue new RT and invalidate old one
     await User.findByIdAndUpdate(user._id, {
       refreshToken: hashString(newRefreshToken),
-      lastLoginAt: new Date()
+      lastLoginAt: new Date(),
     });
 
     logger.info(`Token rotated for user ${user._id}`);
@@ -641,9 +719,21 @@ const getProfile = async (req, res) => {
 // ─── UPDATE PROFILE ──────────────────────────────────────────────────────────────────────
 const updateProfile = async (req, res) => {
   try {
-    const { 
-      name, email, phone, language, fcmToken, location, companyName, businessAddress, 
-      username, avatar, securityPin, transactionPin, securityPinHistory, transactionPinHistory 
+    const {
+      name,
+      email,
+      phone,
+      language,
+      fcmToken,
+      location,
+      companyName,
+      businessAddress,
+      username,
+      avatar,
+      securityPin,
+      transactionPin,
+      securityPinHistory,
+      transactionPinHistory,
     } = req.body;
     const updateData = {};
     const specialUpdates = {};
@@ -653,11 +743,16 @@ const updateProfile = async (req, res) => {
     if (transactionPin) updateData.transactionPin = transactionPin;
     if (securityPinHistory) updateData.securityPinHistory = securityPinHistory;
     if (transactionPinHistory) updateData.transactionPinHistory = transactionPinHistory;
-    if (req.body.securityPinUpdatedAt) updateData.securityPinUpdatedAt = req.body.securityPinUpdatedAt;
-    if (req.body.transactionPinUpdatedAt) updateData.transactionPinUpdatedAt = req.body.transactionPinUpdatedAt;
+    if (req.body.securityPinUpdatedAt)
+      updateData.securityPinUpdatedAt = req.body.securityPinUpdatedAt;
+    if (req.body.transactionPinUpdatedAt)
+      updateData.transactionPinUpdatedAt = req.body.transactionPinUpdatedAt;
 
     if (email && email.toLowerCase() !== req.user.email) {
-      const emailExists = await User.findOne({ email: email.toLowerCase(), _id: { $ne: req.user._id } });
+      const emailExists = await User.findOne({
+        email: email.toLowerCase(),
+        _id: { $ne: req.user._id },
+      });
       if (emailExists) return sendError(res, { message: 'Email already taken', statusCode: 400 });
       updateData.email = email.toLowerCase();
     }
@@ -665,8 +760,12 @@ const updateProfile = async (req, res) => {
     if (phone) {
       const normalizedPhone = phone.replace(/\D/g, '').slice(-10);
       if (normalizedPhone !== req.user.phone) {
-        const phoneExists = await User.findOne({ phone: normalizedPhone, _id: { $ne: req.user._id } });
-        if (phoneExists) return sendError(res, { message: 'Phone number already taken', statusCode: 400 });
+        const phoneExists = await User.findOne({
+          phone: normalizedPhone,
+          _id: { $ne: req.user._id },
+        });
+        if (phoneExists)
+          return sendError(res, { message: 'Phone number already taken', statusCode: 400 });
         updateData.phone = normalizedPhone;
       }
     }
@@ -703,8 +802,8 @@ const updateProfile = async (req, res) => {
       }
     } else if (req.body.address || req.body.lat || req.body.lng) {
       // Direct field support (better for FormData or simple JSON)
-      const lat = parseFloat(req.body.lat || (req.user.location?.coordinates?.[1] || 0));
-      const lng = parseFloat(req.body.lng || (req.user.location?.coordinates?.[0] || 0));
+      const lat = parseFloat(req.body.lat || req.user.location?.coordinates?.[1] || 0);
+      const lng = parseFloat(req.body.lng || req.user.location?.coordinates?.[0] || 0);
       updateData.location = {
         type: 'Point',
         coordinates: [lng, lat],
@@ -727,8 +826,10 @@ const updateProfile = async (req, res) => {
     await cache.del(`user:status:${user._id}`);
 
     return sendSuccess(res, {
-      message: updateData.email ? 'Profile updated. Please verify your new email.' : 'Profile updated',
-      data: { user: user.toSafeObject() }
+      message: updateData.email
+        ? 'Profile updated. Please verify your new email.'
+        : 'Profile updated',
+      data: { user: user.toSafeObject() },
     });
   } catch (err) {
     logger.error('updateProfile error: ' + err.message);
@@ -745,6 +846,17 @@ const getBankDetails = async (req, res) => {
 const updateBankDetails = async (req, res) => {
   const { accountNumber, bankName, ifscCode, accountHolderName, upiId } = req.body;
 
+  // Check Security Block
+  if (req.user.isSecurityBlocked) {
+    const remainingHours = Math.ceil(
+      (new Date(req.user.blockedUntil) - new Date()) / (1000 * 60 * 60),
+    );
+    return sendForbidden(
+      res,
+      `Security Block: Bank Details cannot be updated for ${remainingHours} more hours due to multiple incorrect PIN attempts.`,
+    );
+  }
+
   const user = await User.findByIdAndUpdate(
     req.user._id,
     {
@@ -752,7 +864,7 @@ const updateBankDetails = async (req, res) => {
         bankDetails: { accountNumber, bankName, ifscCode, accountHolderName, upiId },
       },
     },
-    { new: true, runValidators: true }
+    { new: true, runValidators: true },
   );
 
   if (user) {
@@ -765,26 +877,52 @@ const updateBankDetails = async (req, res) => {
   });
 };
 
+const requestBankDetailsChange = async (req, res) => {
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      bankDetailsChangeRequest: { status: 'pending', requestedAt: new Date() },
+    },
+    { new: true, runValidators: true }
+  );
+
+  await cache.del(`user:status:${req.user._id}`);
+
+  return sendSuccess(res, {
+    message: 'Change request submitted successfully',
+    data: { bankDetailsChangeRequest: user.bankDetailsChangeRequest },
+  });
+};
+
 // ─── VERIFICATION ────────────────────────────────────────────────────────────────────────
 const verifyAadhaar = async (req, res) => {
   const { aadhaarNumber } = req.body;
-  if (!aadhaarNumber) return sendValidationError(res, [{ field: 'aadhaarNumber', message: 'Aadhaar number is required' }]);
+  if (!aadhaarNumber)
+    return sendValidationError(res, [
+      { field: 'aadhaarNumber', message: 'Aadhaar number is required' },
+    ]);
 
   const isValid = verificationService.validateAadhaarFormat(aadhaarNumber);
-  
+
   if (!isValid) {
-    return sendError(res, { message: 'Invalid Aadhaar number format or checksum', statusCode: 400 });
+    return sendError(res, {
+      message: 'Invalid Aadhaar number format or checksum',
+      statusCode: 400,
+    });
   }
 
   return sendSuccess(res, {
     message: 'Aadhaar format is valid',
-    data: { isValid: true }
+    data: { isValid: true },
   });
 };
 
 const initiateAadhaarVerification = async (req, res) => {
   const { aadhaarNumber, phoneNumber } = req.body;
-  if (!aadhaarNumber) return sendValidationError(res, [{ field: 'aadhaarNumber', message: 'Aadhaar number is required' }]);
+  if (!aadhaarNumber)
+    return sendValidationError(res, [
+      { field: 'aadhaarNumber', message: 'Aadhaar number is required' },
+    ]);
 
   try {
     // If phone not in body, try to get from logged in user
@@ -792,7 +930,7 @@ const initiateAadhaarVerification = async (req, res) => {
     const result = await verificationService.initiateAadhaarOTP(aadhaarNumber, targetPhone);
     return sendSuccess(res, {
       message: 'OTP initiated successfully',
-      data: result
+      data: result,
     });
   } catch (error) {
     return sendError(res, { message: error.message, statusCode: 400 });
@@ -804,25 +942,25 @@ const completeAadhaarVerification = async (req, res) => {
   if (!referenceId || !otp) {
     return sendValidationError(res, [
       { field: 'referenceId', message: 'Reference ID is required' },
-      { field: 'otp', message: 'OTP is required' }
+      { field: 'otp', message: 'OTP is required' },
     ]);
   }
 
   try {
     const result = await verificationService.verifyAadhaarOTP(referenceId, otp);
-    
+
     // If verified, we could update the user's status in DB
     if (result.isValid && req.user) {
       await User.findByIdAndUpdate(req.user._id, {
         isVerified: true,
         verificationStatus: 'approved',
-        'verificationDetails.aadhaar': result.details
+        'verificationDetails.aadhaar': result.details,
       });
     }
 
     return sendSuccess(res, {
       message: 'Aadhaar verification successful',
-      data: result
+      data: result,
     });
   } catch (error) {
     return sendError(res, { message: error.message, statusCode: 400 });
@@ -831,13 +969,14 @@ const completeAadhaarVerification = async (req, res) => {
 
 const verifyGST = async (req, res) => {
   const { gstNumber } = req.body;
-  if (!gstNumber) return sendValidationError(res, [{ field: 'gstNumber', message: 'GST number is required' }]);
+  if (!gstNumber)
+    return sendValidationError(res, [{ field: 'gstNumber', message: 'GST number is required' }]);
 
   try {
     const result = await verificationService.verifyGSTWithRazorpay(gstNumber);
     return sendSuccess(res, {
       message: 'GST verification successful',
-      data: result
+      data: result,
     });
   } catch (error) {
     return sendError(res, { message: error.message, statusCode: 400 });
@@ -849,19 +988,19 @@ const verifyBankDetails = async (req, res) => {
   if (!accountNumber || !ifscCode) {
     return sendValidationError(res, [
       { field: 'accountNumber', message: 'Account number is required' },
-      { field: 'ifscCode', message: 'IFSC code is required' }
+      { field: 'ifscCode', message: 'IFSC code is required' },
     ]);
   }
 
   try {
     const result = await verificationService.verifyBankAccount(
-      accountNumber, 
-      ifscCode, 
-      accountHolderName || req.user.name
+      accountNumber,
+      ifscCode,
+      accountHolderName || req.user.name,
     );
     return sendSuccess(res, {
       message: 'Bank account verification successful',
-      data: result
+      data: result,
     });
   } catch (error) {
     return sendError(res, { message: error.message, statusCode: 400 });
@@ -883,6 +1022,7 @@ module.exports = {
   updateProfile,
   getBankDetails,
   updateBankDetails,
+  requestBankDetailsChange,
   verifyAadhaar,
   initiateAadhaarVerification,
   completeAadhaarVerification,

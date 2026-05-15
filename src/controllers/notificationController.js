@@ -22,7 +22,9 @@ const getNotifications = async (req, res) => {
 
   return sendPaginated(res, {
     data: { notifications, unreadCount },
-    page, limit, total,
+    page,
+    limit,
+    total,
     message: 'Notifications fetched',
   });
 };
@@ -31,7 +33,7 @@ const markAsRead = async (req, res) => {
   const { id } = req.params;
   await Notification.findOneAndUpdate(
     { _id: id, recipient: req.user._id },
-    { isRead: true, readAt: new Date() }
+    { isRead: true, readAt: new Date() },
   );
   return sendSuccess(res, { message: 'Notification marked as read' });
 };
@@ -39,7 +41,7 @@ const markAsRead = async (req, res) => {
 const markAllAsRead = async (req, res) => {
   await Notification.updateMany(
     { recipient: req.user._id, isRead: false },
-    { isRead: true, readAt: new Date() }
+    { isRead: true, readAt: new Date() },
   );
   return sendSuccess(res, { message: 'All notifications marked as read' });
 };

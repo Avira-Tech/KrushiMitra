@@ -17,12 +17,12 @@ const checkMaintenance = async (req, res, next) => {
     // Health check and specific routes should always be accessible
     if (req.path === '/health' || req.path.includes('/admin/settings')) return next();
 
-    const settings = await SystemSetting.find({ 
-      key: { $in: ['maintenance_mode', 'maintenance_until', 'maintenance_message'] } 
+    const settings = await SystemSetting.find({
+      key: { $in: ['maintenance_mode', 'maintenance_until', 'maintenance_message'] },
     }).lean();
-    
-    const maintenance = settings.find(s => s.key === 'maintenance_mode');
-    
+
+    const maintenance = settings.find((s) => s.key === 'maintenance_mode');
+
     if (maintenance?.value === true) {
       // Allow admins to bypass maintenance
       const token = req.headers.authorization?.startsWith('Bearer ')
@@ -39,15 +39,15 @@ const checkMaintenance = async (req, res, next) => {
         }
       }
 
-      const until = settings.find(s => s.key === 'maintenance_until');
-      const message = settings.find(s => s.key === 'maintenance_message');
+      const until = settings.find((s) => s.key === 'maintenance_until');
+      const message = settings.find((s) => s.key === 'maintenance_message');
 
       return res.status(503).json({
         success: false,
         error: message?.value || 'Platform is undergoing maintenance. Please try again later.',
         isMaintenance: true,
         maintenanceUntil: until?.value,
-        maintenanceMessage: message?.value
+        maintenanceMessage: message?.value,
       });
     }
     next();
@@ -57,13 +57,12 @@ const checkMaintenance = async (req, res, next) => {
   }
 };
 
-
 /**
  * JWT verify options — MUST match the options used in jwt.js generateAccessToken().
  * Enforcing issuer + audience prevents tokens from other systems from being accepted.
  */
 const JWT_VERIFY_OPTIONS = {
-  issuer:   'krushimitra-api',
+  issuer: 'krushimitra-api',
   audience: 'krushimitra-app',
 };
 
@@ -95,37 +94,45 @@ const protect = async (req, res, next) => {
     let user = await cache.get(cacheKey);
 
     if (!user) {
-      user = await User.findById(decoded.id).select('role status isBanned isActive isVerified bankDetails securityStatus').lean();
+      user = await User.findById(decoded.id)
+        .select('role status isBanned isActive isVerified bankDetails securityStatus')
+        .lean();
       if (user) {
         await cache.set(cacheKey, user, 300); // Cache for 5 minutes
       }
     }
 
     if (!user || user.isBanned || !user.isActive || ['banned', 'suspended'].includes(user.status)) {
-      logger.warn(`Blocked access for inactive/banned user: ${decoded.id}`, { status: user?.status, isActive: user?.isActive, isBanned: user?.isBanned });
-      
+      logger.warn(`Blocked access for inactive/banned user: ${decoded.id}`, {
+        status: user?.status,
+        isActive: user?.isActive,
+        isBanned: user?.isBanned,
+      });
+
       // Force disconnect active sockets if user was just banned
       socketService.emitToUser(decoded.id, 'force_logout', { reason: 'Account suspended' });
-      
+
       return res.status(403).json({ success: false, error: 'Account is inactive or suspended' });
     }
 
     // NEW: Attach Security Block status to req.user instead of blocking all data access
-    // This allows blocked users to still view their data/profile, but restricted actions 
+    // This allows blocked users to still view their data/profile, but restricted actions
     // (login/withdrawal) will check this flag.
-    const isSecurityBlocked = !!(user.securityStatus?.blockedUntil && new Date(user.securityStatus.blockedUntil) > new Date());
+    const isSecurityBlocked = !!(
+      user.securityStatus?.blockedUntil && new Date(user.securityStatus.blockedUntil) > new Date()
+    );
     const blockedUntil = isSecurityBlocked ? user.securityStatus.blockedUntil : null;
 
     // Set req.user here so subsequent checks and logging can see it
     req.user = {
-      _id:               decoded.id,
-      id:                decoded.id,
-      role:              user.role,
-      phone:             decoded.phone,
-      isVerified:        user.isVerified,
-      status:            user.status,
-      bankDetails:       user.bankDetails,
-      csrfToken:         decoded.csrfToken,
+      _id: decoded.id,
+      id: decoded.id,
+      role: user.role,
+      phone: decoded.phone,
+      isVerified: user.isVerified,
+      status: user.status,
+      bankDetails: user.bankDetails,
+      csrfToken: decoded.csrfToken,
       isSecurityBlocked,
       blockedUntil,
     };
@@ -184,17 +191,17 @@ const optionalAuth = async (req, res, next) => {
 
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET, JWT_VERIFY_OPTIONS);
-      
+
       // Still check DB in optional auth to avoid assuming identity of banned users
       const user = await User.findById(decoded.id).select('role status isBanned isActive').lean();
-      
+
       if (user && !user.isBanned && user.isActive && user.status !== 'banned') {
         req.user = {
-          _id:   decoded.id,
-          id:    decoded.id,
-          role:  user.role,
+          _id: decoded.id,
+          id: decoded.id,
+          role: user.role,
           phone: decoded.phone,
-          status: user.status
+          status: user.status,
         };
       }
     }
@@ -204,4 +211,11 @@ const optionalAuth = async (req, res, next) => {
   next();
 };
 
-module.exports = { protect, restrictTo, requireVerified, optionalAuth, adminOnly, checkMaintenance };
+module.exports = {
+  protect,
+  restrictTo,
+  requireVerified,
+  optionalAuth,
+  adminOnly,
+  checkMaintenance,
+};

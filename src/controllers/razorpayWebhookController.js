@@ -16,12 +16,12 @@ const handleWebhook = async (req, res) => {
     if (event.event === 'payment.captured') {
       const paymentRecord = await Payment.findOneAndUpdate(
         { 'razorpay.orderId': paymentData.order_id },
-        { status: 'captured', 'razorpay.paymentId': paymentData.id }
+        { status: 'captured', 'razorpay.paymentId': paymentData.id },
       );
 
       await Contract.findByIdAndUpdate(paymentRecord.contract, {
         status: 'confirmed',
-        'payment.status': 'in_escrow'
+        'payment.status': 'in_escrow',
       });
       logger.info(`Webhook: Payment captured for Order ${paymentData.order_id}`);
     }

@@ -6,9 +6,9 @@
  * Used by offerController.acceptOffer to prevent race conditions.
  */
 
-const mongoose  = require('mongoose');
+const mongoose = require('mongoose');
 const { generateContractId } = require('../utils/helpers');
-const logger    = require('../utils/logger');
+const logger = require('../utils/logger');
 
 // ─── Retry helper ─────────────────────────────────────────────────────────────
 /**
@@ -41,7 +41,7 @@ const executeTransaction = async (operation, options = {}, attempt = 0) => {
     const result = await Promise.race([
       operation(session),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Transaction timeout')), timeout)
+        setTimeout(() => reject(new Error('Transaction timeout')), timeout),
       ),
     ]);
 
@@ -74,59 +74,60 @@ const executeTransaction = async (operation, options = {}, attempt = 0) => {
  */
 const transactionOfferAcceptance = (offerId, userId) =>
   executeTransaction(async (session) => {
-    const Offer    = mongoose.model('Offer');
-    const Crop     = mongoose.model('Crop');
+    const Offer = mongoose.model('Offer');
+    const Crop = mongoose.model('Crop');
     const Contract = mongoose.model('Contract');
 
     // 1. Load and validate offer
     const offer = await Offer.findById(offerId)
       .populate('crop')
       .populate('farmer', 'name phone email')
-      .populate('buyer',  'name phone email')
+      .populate('buyer', 'name phone email')
       .session(session);
 
-    if (!offer)                        throw new Error('Offer not found');
+    if (!offer) throw new Error('Offer not found');
     if (!['pending', 'countered'].includes(offer.status)) {
-        throw new Error(`Offer is already ${offer.status}`);
+      throw new Error(`Offer is already ${offer.status}`);
     }
-    if (new Date() > offer.expiresAt)  throw new Error('Offer has expired');
+    if (new Date() > offer.expiresAt) throw new Error('Offer has expired');
 
     // ─── Authorization Check ──────────────────────────────────────────────────
     // Determine who is allowed to accept based on current status
     let isAuthorized = false;
     if (offer.status === 'pending') {
-        // Pending offers are sent by buyers to farmers
-        isAuthorized = offer.farmer._id.toString() === userId.toString();
+      // Pending offers are sent by buyers to farmers
+      isAuthorized = offer.farmer._id.toString() === userId.toString();
     } else if (offer.status === 'countered') {
-        // For countered, only the party who DID NOT send the counter can accept
-        if (offer.counterOffer?.by === 'farmer') {
-            isAuthorized = offer.buyer._id.toString() === userId.toString();
-        } else {
-            isAuthorized = offer.farmer._id.toString() === userId.toString();
-        }
+      // For countered, only the party who DID NOT send the counter can accept
+      if (offer.counterOffer?.by === 'farmer') {
+        isAuthorized = offer.buyer._id.toString() === userId.toString();
+      } else {
+        isAuthorized = offer.farmer._id.toString() === userId.toString();
+      }
     }
 
     if (!isAuthorized) {
-        throw new Error('Not authorized to accept this offer in its current state');
+      throw new Error('Not authorized to accept this offer in its current state');
     }
 
     // ─── Determine Final Pricing ──────────────────────────────────────────────
-    const finalPricePerKg = offer.status === 'countered' && offer.counterOffer?.price 
-        ? offer.counterOffer.price 
+    const finalPricePerKg =
+      offer.status === 'countered' && offer.counterOffer?.price
+        ? offer.counterOffer.price
         : offer.pricePerKg;
     const finalTotalAmount = parseFloat((offer.quantity * finalPricePerKg).toFixed(2));
 
     // 2. Atomically decrement stock — the $gte condition prevents overselling
     const updatedCrop = await Crop.findOneAndUpdate(
       { _id: offer.crop._id, availableQuantity: { $gte: offer.quantity } },
-      { 
+      {
         $inc: { availableQuantity: -offer.quantity },
-        $set: { 
+        $set: {
           // If the new available quantity (after decrement) would be 0, set status to sold
           // We can't easily check the new value in the same query without a complex pipeline
-        } 
+        },
       },
-      { session, new: true }
+      { session, new: true },
     );
 
     if (!updatedCrop) {
@@ -148,50 +149,53 @@ const transactionOfferAcceptance = (offerId, userId) =>
       [
         {
           contractId,
-          offer:   offer._id,
-          crop:    offer.crop._id,
-          farmer:  offer.farmer._id,
-          buyer:   offer.buyer._id,
+          offer: offer._id,
+          crop: offer.crop._id,
+          farmer: offer.farmer._id,
+          buyer: offer.buyer._id,
           terms: {
-            cropName:     offer.crop.name,
-            quantity:     offer.quantity,
-            pricePerKg:   finalPricePerKg,
-            totalAmount:  finalTotalAmount,
+            cropName: offer.crop.name,
+            quantity: offer.quantity,
+            pricePerKg: finalPricePerKg,
+            totalAmount: finalTotalAmount,
             platformFee,
-            netAmount:    parseFloat((finalTotalAmount - platformFee).toFixed(2)),
+            netAmount: parseFloat((finalTotalAmount - platformFee).toFixed(2)),
             deliveryDate: offer.deliveryDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             deliveryAddress: offer.deliveryLocation,
             deliveryServiceType: offer.deliveryServiceType || 'local',
             paymentTerms: offer.paymentTerms ?? 'KrushiMitra Secure Escrow',
             // Flatten farmer/buyer names so frontend Contract interface works
-            farmerName:   offer.farmer.name,
-            buyerName:    offer.buyer.name,
+            farmerName: offer.farmer.name,
+            buyerName: offer.buyer.name,
           },
-          status:          'active',
-          payment:         { status: 'awaiting_buyer' },
-          delivery:        { status: 'pending' },
+          status: 'active',
+          payment: { status: 'awaiting_buyer' },
+          delivery: { status: 'pending' },
           transport: {
             provider: offer.selectedTruck ? 'local' : 'none',
             status: offer.selectedTruck ? 'requested' : 'none',
             truck: offer.selectedTruck,
-            logisticsPartner: offer.selectedTruck ? (await mongoose.model('Truck').findById(offer.selectedTruck).session(session))?.owner : undefined,
+            logisticsPartner: offer.selectedTruck
+              ? (await mongoose.model('Truck').findById(offer.selectedTruck).session(session))
+                  ?.owner
+              : undefined,
             pickupOtp: Math.floor(100000 + Math.random() * 900000).toString(),
             deliveryOtp: Math.floor(100000 + Math.random() * 900000).toString(),
             estimatedCost: offer.transportCost || 0,
             distanceKm: offer.distanceKm || 0,
           },
-          dispute:         { isDisputed: false },
-          createdAt:       new Date(),
+          dispute: { isDisputed: false },
+          createdAt: new Date(),
         },
       ],
-      { session }
+      { session },
     );
 
     // 4. Mark offer as accepted and link contract
     await Offer.findByIdAndUpdate(
       offerId,
       { status: 'accepted', acceptedAt: new Date(), contract: contract._id },
-      { session }
+      { session },
     );
 
     logger.info(`✅ Transaction complete: offer ${offerId} → contract ${contract._id}`);
@@ -205,7 +209,7 @@ const transactionOfferAcceptance = (offerId, userId) =>
 const transactionPaymentVerification = (contractId, paymentData) =>
   executeTransaction(async (session) => {
     const Contract = mongoose.model('Contract');
-    const Payment  = mongoose.model('Payment');
+    const Payment = mongoose.model('Payment');
     const { redis } = require('../config/redis');
 
     // Distributed Lock (with fallback if Redis fails or is unavailable)
@@ -214,7 +218,9 @@ const transactionPaymentVerification = (contractId, paymentData) =>
     try {
       acquired = await redis.set(lockKey, 'locked', 'PX', 10000, 'NX');
     } catch (redisErr) {
-      logger.warn(`Redis lock acquisition failed for ${contractId}: ${redisErr.message}. Proceeding without lock.`);
+      logger.warn(
+        `Redis lock acquisition failed for ${contractId}: ${redisErr.message}. Proceeding without lock.`,
+      );
       acquired = true; // Fallback to proceed if Redis is down
     }
 
@@ -249,9 +255,9 @@ const transactionPaymentVerification = (contractId, paymentData) =>
             'stripe.status': status,
             'stripe.amountReceived': amount,
             processedAt: new Date(),
-          }
+          },
         },
-        { session, new: true, upsert: true }
+        { session, new: true, upsert: true },
       );
 
       // 2. Update Contract status
@@ -263,7 +269,7 @@ const transactionPaymentVerification = (contractId, paymentData) =>
           'payment.stripeIntentId': intentId,
           'payment.paidAt': new Date(),
         },
-        { session, new: true }
+        { session, new: true },
       );
 
       return { contract: updatedContract, payment };
@@ -279,7 +285,7 @@ const transactionPaymentVerification = (contractId, paymentData) =>
 const transactionPaymentRelease = (contractId) =>
   executeTransaction(async (session) => {
     const Contract = mongoose.model('Contract');
-    const Payment  = mongoose.model('Payment');
+    const Payment = mongoose.model('Payment');
 
     const contract = await Contract.findById(contractId).session(session);
     if (!contract) throw new Error('Contract not found');
@@ -291,12 +297,15 @@ const transactionPaymentRelease = (contractId) =>
 
     // 1. Update Payment record
     const payment = await Payment.findOneAndUpdate(
-      { contract: contractId, status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] } },
+      {
+        contract: contractId,
+        status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] },
+      },
       {
         status: 'released',
         releasedAt: new Date(),
       },
-      { session, new: true }
+      { session, new: true },
     );
 
     // 2. Update Contract status
@@ -310,7 +319,7 @@ const transactionPaymentRelease = (contractId) =>
         'delivery.status': 'delivered',
         'delivery.actualDelivery': new Date(),
       },
-      { session, new: true }
+      { session, new: true },
     );
 
     return { contract: updatedContract, payment };
@@ -323,7 +332,7 @@ const transactionPaymentRelease = (contractId) =>
 const transactionCodPayment = (contractId, paymentData) =>
   executeTransaction(async (session) => {
     const Contract = mongoose.model('Contract');
-    const Payment  = mongoose.model('Payment');
+    const Payment = mongoose.model('Payment');
 
     const contract = await Contract.findById(contractId).session(session);
     if (!contract) throw new Error('Contract not found');
@@ -348,7 +357,7 @@ const transactionCodPayment = (contractId, paymentData) =>
           notes: paymentData.notes || 'Cash on Delivery confirmed',
         },
       ],
-      { session }
+      { session },
     );
 
     // 2. Update Contract status
@@ -364,7 +373,7 @@ const transactionCodPayment = (contractId, paymentData) =>
         'delivery.status': 'delivered',
         'delivery.actualDelivery': new Date(),
       },
-      { session, new: true }
+      { session, new: true },
     );
 
     return { contract: updatedContract, payment };
@@ -375,5 +384,5 @@ module.exports = {
   transactionOfferAcceptance,
   transactionPaymentVerification,
   transactionPaymentRelease,
-  transactionCodPayment
+  transactionCodPayment,
 };

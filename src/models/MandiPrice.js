@@ -69,7 +69,7 @@ const mandiPriceSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Composite indexes for performance

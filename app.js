@@ -49,6 +49,7 @@ const reviewRoutes = require('./src/routes/reviewRoutes');
 const cmsRoutes = require('./src/routes/cmsRoutes');
 const payoutRoutes = require('./src/routes/payoutRoutes');
 const logisticsRoutes = require('./src/routes/logisticsRoutes');
+const uploadRoutes = require('./src/routes/uploadRoutes');
 const paymentPageRoute = require('./src/routes/paymentPage');
 
 const app = express();
@@ -61,49 +62,75 @@ const logsDir = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
 // ─── Security headers ──────────────────────────────────────────────────────────
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "https://js.stripe.com", "https://checkout.razorpay.com", "'unsafe-inline'"],
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://api.razorpay.com"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.razorpay.com", "wss:", "ws:"], // Support WebSocket
-      imgSrc: ["'self'", 'data:', 'https:', 'blob:', 'https://razorpay.com', 'https://stripe.com'],
+app.use(
+  helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: [
+          "'self'",
+          'https://js.stripe.com',
+          'https://checkout.razorpay.com',
+          "'unsafe-inline'",
+        ],
+        frameSrc: [
+          "'self'",
+          'https://js.stripe.com',
+          'https://hooks.stripe.com',
+          'https://api.razorpay.com',
+        ],
+        connectSrc: ["'self'", 'https://api.stripe.com', 'https://api.razorpay.com', 'wss:', 'ws:'], // Support WebSocket
+        imgSrc: [
+          "'self'",
+          'data:',
+          'https:',
+          'blob:',
+          'https://razorpay.com',
+          'https://stripe.com',
+        ],
+      },
     },
-  },
-}));
+  }),
+);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    const raw = process.env.ALLOWED_ORIGINS ?? '';
-    const allowedOrigins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const raw = process.env.ALLOWED_ORIGINS ?? '';
+      const allowedOrigins = raw
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
 
-    // 1. Allow if in whitelist
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+      // 1. Allow if in whitelist
+      if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // 2. Allow if origin is missing (e.g., Mobile App, Postman, Server-to-Server)
-    if (!origin) return callback(null, true);
+      // 2. Allow if origin is missing (e.g., Mobile App, Postman, Server-to-Server)
+      if (!origin) return callback(null, true);
 
-    // 3. Allow if in development mode
-    if (process.env.NODE_ENV === 'development') return callback(null, true);
+      // 3. Allow if in development mode
+      if (process.env.NODE_ENV === 'development') return callback(null, true);
 
-    // Otherwise, block
-    logger.warn(`CORS blocked request from unauthorized origin: ${origin}`);
-    callback(new Error(`CORS policy: ${origin} not allowed`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token', 'Accept'],
-}));
+      // Otherwise, block
+      logger.warn(`CORS blocked request from unauthorized origin: ${origin}`);
+      callback(new Error(`CORS policy: ${origin} not allowed`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token', 'Accept'],
+  }),
+);
 
-app.use(compression({
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false;
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (req.headers['x-no-compression']) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // ─── Webhook (Must be before express.json) ────────────────────────────────────
 // Stripe signs the raw request body. Razorpay also benefits from raw body parsing.
@@ -132,10 +159,12 @@ app.use(slowRequestMiddleware(1000));
 app.use(errorLoggingMiddleware);
 
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined', {
-    stream: { write: (msg) => logger.http(msg.trim()) },
-    skip: (req) => req.path === '/health',
-  }));
+  app.use(
+    morgan('combined', {
+      stream: { write: (msg) => logger.http(msg.trim()) },
+      skip: (req) => req.path === '/health',
+    }),
+  );
 }
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────
@@ -175,8 +204,8 @@ app.use(`${API_PREFIX}/offers`, offerRoutes);
 app.use(`${API_PREFIX}/contracts`, contractRoutes);
 app.use(`${API_PREFIX}/payments`, paymentRoutes);
 app.use(`${API_PREFIX}/chats`, chatRoutes);
+app.use(`${API_PREFIX}/upload`, uploadRoutes);
 app.use(`${API_PREFIX}/admin`, adminRoutes);
-
 
 app.use(`${API_PREFIX}/notifications`, notificationRoutes);
 app.use(`${API_PREFIX}/weather`, weatherRoutes);

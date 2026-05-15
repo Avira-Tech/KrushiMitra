@@ -70,13 +70,19 @@ const createStripePaymentIntent = async (req, res) => {
     const allowedStatuses = ['awaiting_buyer', 'awaiting_payment', 'pending'];
     if (!allowedStatuses.includes(contract.payment?.status)) {
       if (['paid', 'in_escrow', 'requires_capture'].includes(contract.payment?.status)) {
-        return sendError(res, { message: 'Payment already completed or in progress', statusCode: 400 });
+        return sendError(res, {
+          message: 'Payment already completed or in progress',
+          statusCode: 400,
+        });
       }
-      return sendError(res, { message: `Current payment status '${contract.payment?.status}' does not allow payment initiation`, statusCode: 400 });
+      return sendError(res, {
+        message: `Current payment status '${contract.payment?.status}' does not allow payment initiation`,
+        statusCode: 400,
+      });
     }
 
     const SystemSetting = require('../models/SystemSetting');
-    
+
     // Fetch dynamic commission rate (default to 2% if not set)
     const commissionSetting = await SystemSetting.findOne({ key: 'platform_commission_rate' });
     const commissionRate = commissionSetting ? parseFloat(commissionSetting.value) : 0.02;
@@ -119,7 +125,9 @@ const createStripePaymentIntent = async (req, res) => {
     }).sort({ createdAt: -1 });
 
     if (existingPayment) {
-      logger.info(`Reusing active Stripe intent ${existingPayment.stripe.paymentIntentId} for contract ${contract._id}`);
+      logger.info(
+        `Reusing active Stripe intent ${existingPayment.stripe.paymentIntentId} for contract ${contract._id}`,
+      );
       return sendSuccess(res, {
         message: 'Existing payment intent found.',
         data: {
@@ -137,16 +145,19 @@ const createStripePaymentIntent = async (req, res) => {
     const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
     const idempotencyKey = `PI-${contract._id}-${buyerId}-${today}`;
 
-    const intent = await stripe.paymentIntents.create({
-      amount: grandTotalUnits, // Already in paise (smallest unit) — do NOT multiply by 100 again
-      currency: 'inr',
-      metadata: {
-        contractId: contract._id.toString(),
-        buyerId: buyerId.toString(),
-        farmerId: contract.farmer._id.toString(),
+    const intent = await stripe.paymentIntents.create(
+      {
+        amount: grandTotalUnits, // Already in paise (smallest unit) — do NOT multiply by 100 again
+        currency: 'inr',
+        metadata: {
+          contractId: contract._id.toString(),
+          buyerId: buyerId.toString(),
+          farmerId: contract.farmer._id.toString(),
+        },
+        capture_method: 'manual', // Hold funds (Escrow)
       },
-      capture_method: 'manual', // Hold funds (Escrow)
-    }, { idempotencyKey });
+      { idempotencyKey },
+    );
 
     const receiptId = `KM-STP-${require('crypto').randomBytes(4).toString('hex').toUpperCase()}`;
 
@@ -212,20 +223,22 @@ const verifyStripePayment = async (req, res) => {
 
     // Status can be 'succeeded' (instant pay) or 'requires_capture' (manual escrow)
     const validStatuses = ['succeeded', 'requires_capture', 'processing'];
-    
+
     if (intent.status === 'requires_action' || intent.status === 'requires_payment_method') {
-      return sendError(res, { 
-        message: 'Payment requires additional action. Please complete the authentication.', 
-        statusCode: 402, 
-        data: { status: intent.status } 
+      return sendError(res, {
+        message: 'Payment requires additional action. Please complete the authentication.',
+        statusCode: 402,
+        data: { status: intent.status },
       });
     }
 
     if (!validStatuses.includes(intent.status)) {
-      logger.warn(`❌ Verification failed for intent ${paymentIntentId}: Invalid status '${intent.status}'. Valid statuses are: ${validStatuses.join(', ')}`);
-      return sendError(res, { 
-        message: `Payment verification failed. Stripe reported status: ${intent.status}. Expected one of: ${validStatuses.join(', ')}`, 
-        statusCode: 400 
+      logger.warn(
+        `❌ Verification failed for intent ${paymentIntentId}: Invalid status '${intent.status}'. Valid statuses are: ${validStatuses.join(', ')}`,
+      );
+      return sendError(res, {
+        message: `Payment verification failed. Stripe reported status: ${intent.status}. Expected one of: ${validStatuses.join(', ')}`,
+        statusCode: 400,
       });
     }
 
@@ -284,7 +297,7 @@ const handleWebhook = async (req, res) => {
           logger.warn(`Stripe Webhook: Payment failed for contract ${contractId}`);
           await Payment.findOneAndUpdate(
             { 'stripe.paymentIntentId': intent.id },
-            { status: 'failed', failureReason: intent.last_payment_error?.message }
+            { status: 'failed', failureReason: intent.last_payment_error?.message },
           );
           await Contract.findByIdAndUpdate(contractId, { 'payment.status': 'failed' });
         }
@@ -344,7 +357,10 @@ const confirmCodPayment = async (req, res) => {
     return sendSuccess(res, { message: 'Payment confirmed. Contract completed!' });
   } catch (err) {
     logger.error('confirmCodPayment error:', err);
-    return sendError(res, { message: err.message || 'Failed to confirm COD payment', statusCode: err.message.includes('not found') ? 404 : 500 });
+    return sendError(res, {
+      message: err.message || 'Failed to confirm COD payment',
+      statusCode: err.message.includes('not found') ? 404 : 500,
+    });
   }
 };
 
@@ -365,9 +381,9 @@ const releasePayment = async (req, res) => {
       return sendForbidden(res, 'Only the buyer can release escrowed funds');
     }
 
-    const payment = await Payment.findOne({ 
-      contract: contractId, 
-      status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] } 
+    const payment = await Payment.findOne({
+      contract: contractId,
+      status: { $in: ['in_escrow', 'paid', 'captured', 'processing_release'] },
     });
     if (!payment || !payment.stripe?.paymentIntentId) {
       return sendError(res, { message: 'No escrowed payment found to release', statusCode: 400 });
@@ -397,12 +413,12 @@ const releasePayment = async (req, res) => {
       refModel: 'Contract',
       refId: contract._id,
       priority: 'high',
-    }).catch(() => { });
+    }).catch(() => {});
 
     socketService.emitToUser(contract.farmer.toString(), 'contract:update', {
       contractId: contract._id,
       status: 'completed',
-      paymentStatus: 'released'
+      paymentStatus: 'released',
     });
 
     return sendSuccess(res, {
@@ -411,13 +427,13 @@ const releasePayment = async (req, res) => {
     });
   } catch (err) {
     logger.error('releasePayment error:', err);
-    
+
     // Attempt to revert status if it was stuck in processing
     try {
       const { contractId } = req.params;
       await Payment.findOneAndUpdate(
         { contract: contractId, status: 'processing_release' },
-        { status: 'in_escrow' }
+        { status: 'in_escrow' },
       );
     } catch (revertErr) {
       logger.error('Failed to revert payment status:', revertErr);
@@ -443,9 +459,15 @@ const initiateRefund = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     if (!isBuyer && !isAdmin) return sendForbidden(res, 'Not authorized');
 
-    const payment = await Payment.findOne({ contract: contractId, status: { $in: ['captured', 'in_escrow', 'processing_release'] } });
+    const payment = await Payment.findOne({
+      contract: contractId,
+      status: { $in: ['captured', 'in_escrow', 'processing_release'] },
+    });
     if (!payment?.stripe?.paymentIntentId) {
-      return sendError(res, { message: 'No refundable Stripe payment found for this contract', statusCode: 404 });
+      return sendError(res, {
+        message: 'No refundable Stripe payment found for this contract',
+        statusCode: 404,
+      });
     }
 
     const refund = await createRefund(payment.stripe.paymentIntentId);
@@ -461,7 +483,7 @@ const initiateRefund = async (req, res) => {
       status: 'cancelled',
       cancelledAt: new Date(),
       cancellationReason: reason,
-      'payment.status': 'refunded'
+      'payment.status': 'refunded',
     });
 
     logger.info(`Refund successful: ${refund.id} for contract ${contractId}`);

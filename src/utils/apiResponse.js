@@ -3,7 +3,10 @@
  * All responses follow: { success, message, data, meta }
  */
 
-const sendSuccess = (res, { message = 'Success', data = {}, statusCode = 200, meta = null } = {}) => {
+const sendSuccess = (
+  res,
+  { message = 'Success', data = {}, statusCode = 200, meta = null } = {},
+) => {
   const response = { success: true, message, data };
   if (meta) response.meta = meta;
   return res.status(statusCode).json(response);
@@ -13,7 +16,10 @@ const sendCreated = (res, { message = 'Created successfully', data = {} } = {}) 
   return res.status(201).json({ success: true, message, data });
 };
 
-const sendError = (res, { message = 'An error occurred', statusCode = 500, errors = null } = {}) => {
+const sendError = (
+  res,
+  { message = 'An error occurred', statusCode = 500, errors = null } = {},
+) => {
   const response = { success: false, message };
   if (errors) response.errors = errors;
   return res.status(statusCode).json(response);

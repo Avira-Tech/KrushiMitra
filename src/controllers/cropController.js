@@ -24,10 +24,18 @@ const logger = require('../utils/logger');
 const getCrops = async (req, res) => {
   try {
     const {
-      category, search, minPrice, maxPrice,
-      skip = 0, limit = 20,
-      lat, lon, radius = 50,
-      quality, sortBy = 'createdAt', order = 'desc',
+      category,
+      search,
+      minPrice,
+      maxPrice,
+      skip = 0,
+      limit = 20,
+      lat,
+      lon,
+      radius = 50,
+      quality,
+      sortBy = 'createdAt',
+      order = 'desc',
     } = req.query;
 
     const filter = { status: 'active', isAvailable: true };
@@ -63,15 +71,15 @@ const getCrops = async (req, res) => {
             query: filter,
             spherical: true,
             distanceMultiplier: 0.001, // convert to km
-          }
+          },
         },
         {
           $lookup: {
             from: 'users',
             localField: 'farmer',
             foreignField: '_id',
-            as: 'farmer'
-          }
+            as: 'farmer',
+          },
         },
         { $unwind: '$farmer' },
         {
@@ -79,19 +87,15 @@ const getCrops = async (req, res) => {
             'farmer.password': 0,
             'farmer.otp': 0,
             'farmer.refreshToken': 0,
-          }
-        }
+          },
+        },
       ];
 
       // Sorting
       const sortDir = order === 'asc' ? 1 : -1;
-      if (sortBy === 'distance') {
-        pipeline.push({ $sort: { distance: 1 } });
-      } else {
-        const allowedSort = { pricePerKg: 1, createdAt: 1, quantity: 1 };
-        const sortField = allowedSort[sortBy] !== undefined ? sortBy : 'createdAt';
-        pipeline.push({ $sort: { [sortField]: sortDir } });
-      }
+      const sortMap = { price: 'pricePerKg', pricePerKg: 'pricePerKg', createdAt: 'createdAt', quantity: 'quantity', distance: 'distance', rating: 'rating' };
+      const sortField = sortMap[sortBy] || 'createdAt';
+      pipeline.push({ $sort: { [sortField]: sortDir } });
 
       // Pagination
       pipeline.push({ $skip: parseInt(skip) });
@@ -99,14 +103,14 @@ const getCrops = async (req, res) => {
 
       const [results, countResult] = await Promise.all([
         Crop.aggregate(pipeline),
-        Crop.countDocuments(filter)
+        Crop.countDocuments(filter),
       ]);
       crops = results;
       total = countResult;
     } else {
       const sortDir = order === 'asc' ? 1 : -1;
-      const allowedSort = { pricePerKg: 1, createdAt: 1, quantity: 1 };
-      const sortField = allowedSort[sortBy] !== undefined ? sortBy : 'createdAt';
+      const sortMap = { price: 'pricePerKg', pricePerKg: 'pricePerKg', createdAt: 'createdAt', quantity: 'quantity', rating: 'rating' };
+      const sortField = sortMap[sortBy] || 'createdAt';
 
       [crops, total] = await Promise.all([
         Crop.find(filter)
@@ -154,17 +158,26 @@ const getCropsWithoutGeo = async (req, res) => {
     if (maxPrice) filter.pricePerKg.$lte = parseFloat(maxPrice);
   }
   const [crops, total] = await Promise.all([
-    Crop.find(filter).populate('farmer', 'name phone avatar rating username').sort({ createdAt: -1 }).skip(parseInt(skip)).limit(parseInt(limit)).lean(),
+    Crop.find(filter)
+      .populate('farmer', 'name phone avatar rating username')
+      .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit))
+      .lean(),
     Crop.countDocuments(filter),
   ]);
-  return res.status(200).json({ success: true, data: crops, pagination: { total, skip: parseInt(skip), limit: parseInt(limit) } });
+  return res.status(200).json({
+    success: true,
+    data: crops,
+    pagination: { total, skip: parseInt(skip), limit: parseInt(limit) },
+  });
 };
 
 // ─── GET /api/v1/crops/:id ────────────────────────────────────────────────────
 const getCropDetail = async (req, res) => {
   try {
     const { lat, lon } = req.query;
-    
+
     const crop = await Crop.findById(req.params.id)
       .populate('farmer', 'name phone email avatar rating location username')
       .lean();
@@ -177,21 +190,25 @@ const getCropDetail = async (req, res) => {
     if (lat && lon && crop.location?.coordinates) {
       const [cropLon, cropLat] = crop.location.coordinates;
       const R = 6371; // km
-      const dLat = (cropLat - lat) * Math.PI / 180;
-      const dLon = (cropLon - lon) * Math.PI / 180;
-      const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat * Math.PI / 180) * Math.cos(cropLat * Math.PI / 180) * 
-        Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const dLat = ((cropLat - lat) * Math.PI) / 180;
+      const dLon = ((cropLon - lon) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat * Math.PI) / 180) *
+          Math.cos((cropLat * Math.PI) / 180) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       crop.distance = parseFloat((R * c).toFixed(1));
     }
 
     // Fetch farmer's other crops (exclude this one)
     const otherCrops = await Crop.find(
       { farmer: crop.farmer._id, _id: { $ne: crop._id }, status: 'active' },
-      'name category pricePerKg images quantity'
-    ).limit(5).lean();
+      'name category pricePerKg images quantity',
+    )
+      .limit(5)
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -243,26 +260,43 @@ const addCrop = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-    if (user.role !== 'farmer') return res.status(403).json({ success: false, error: 'Only farmers can add crops' });
+    if (user.role !== 'farmer')
+      return res.status(403).json({ success: false, error: 'Only farmers can add crops' });
 
     const {
-      name, category, quantity, unit = 'kg', pricePerKg,
-      description, harvestDate, availableFrom, images = [], location,
-      quality = 'B', soilType, pesticides = false,
-      isNegotiable = true, organic = false, pickupAvailable = true,
+      name,
+      category,
+      quantity,
+      unit = 'kg',
+      pricePerKg,
+      description,
+      harvestDate,
+      availableFrom,
+      images = [],
+      location,
+      quality = 'B',
+      soilType,
+      pesticides = false,
+      isNegotiable = true,
+      organic = false,
+      pickupAvailable = true,
     } = req.body;
 
     // Handle Image Uploads to Cloudinary
     let finalImages = [];
     if (Array.isArray(images)) {
       // Keep existing URLs (useful for updates or if they were already uploaded)
-      finalImages = images.map(img => ({ url: sanitizer.sanitizeUrl(img) })).filter(img => img.url);
+      finalImages = images
+        .map((img) => ({ url: sanitizer.sanitizeUrl(img) }))
+        .filter((img) => img.url);
     }
 
     if (req.files && Array.isArray(req.files)) {
-      const uploadPromises = req.files.map(file => uploadBufferToCloudinary(file.buffer, 'crops'));
+      const uploadPromises = req.files.map((file) =>
+        uploadBufferToCloudinary(file.buffer, 'crops'),
+      );
       const uploadedResults = await Promise.all(uploadPromises);
-      const newImages = uploadedResults.map(res => ({ url: res.url }));
+      const newImages = uploadedResults.map((res) => ({ url: res.url }));
       finalImages = [...finalImages, ...newImages];
     }
 
@@ -284,24 +318,33 @@ const addCrop = async (req, res) => {
       isNegotiable: Boolean(isNegotiable),
       organic: Boolean(organic),
       pickupAvailable: Boolean(pickupAvailable),
-      location: location ? (typeof location === 'string' ? (() => {
-        try {
-          const loc = JSON.parse(location);
-          return {
-            type: 'Point',
-            coordinates: [parseFloat(loc.lng || 0), parseFloat(loc.lat || 0)],
-            address: sanitizer.sanitizeString(loc.address || ''),
-            city: sanitizer.sanitizeString(loc.city || ''),
-            state: sanitizer.sanitizeString(loc.state || ''),
-          };
-        } catch (e) { return undefined; }
-      })() : {
-        type: 'Point',
-        coordinates: [parseFloat(location.longitude || location.lng || 0), parseFloat(location.latitude || location.lat || 0)],
-        address: sanitizer.sanitizeString(location.address || ''),
-        city: sanitizer.sanitizeString(location.city || ''),
-        state: sanitizer.sanitizeString(location.state || ''),
-      }) : undefined,
+      location: location
+        ? typeof location === 'string'
+          ? (() => {
+              try {
+                const loc = JSON.parse(location);
+                return {
+                  type: 'Point',
+                  coordinates: [parseFloat(loc.lng || 0), parseFloat(loc.lat || 0)],
+                  address: sanitizer.sanitizeString(loc.address || ''),
+                  city: sanitizer.sanitizeString(loc.city || ''),
+                  state: sanitizer.sanitizeString(loc.state || ''),
+                };
+              } catch (e) {
+                return undefined;
+              }
+            })()
+          : {
+              type: 'Point',
+              coordinates: [
+                parseFloat(location.longitude || location.lng || 0),
+                parseFloat(location.latitude || location.lat || 0),
+              ],
+              address: sanitizer.sanitizeString(location.address || ''),
+              city: sanitizer.sanitizeString(location.city || ''),
+              state: sanitizer.sanitizeString(location.state || ''),
+            }
+        : undefined,
     });
 
     await crop.populate('farmer', 'name phone email username');
@@ -330,17 +373,34 @@ const updateCrop = async (req, res) => {
     }
 
     const ALLOWED = [
-      'name', 'category', 'quantity', 'pricePerKg', 'pricePerUnit', 
-      'description', 'harvestDate', 'availableFrom', 'images', 'quality', 
-      'soilType', 'pesticides', 'status', 'isNegotiable', 'organic', 
-      'pickupAvailable', 'location'
+      'name',
+      'category',
+      'quantity',
+      'pricePerKg',
+      'pricePerUnit',
+      'description',
+      'harvestDate',
+      'availableFrom',
+      'images',
+      'quality',
+      'soilType',
+      'pesticides',
+      'status',
+      'isNegotiable',
+      'organic',
+      'pickupAvailable',
+      'location',
     ];
     const updates = {};
 
     for (const field of ALLOWED) {
       if (req.body[field] === undefined) continue;
       if (field === 'quantity') {
-        updates.quantity = parseFloat(req.body[field]);
+        const newQuantity = parseFloat(req.body[field]);
+        const soldQuantity = Math.max(0, (crop.quantity || 0) - (crop.availableQuantity || 0));
+        updates.quantity = newQuantity;
+        updates.availableQuantity = Math.max(0, newQuantity - soldQuantity);
+      } else if (field === 'availableQuantity') {
         updates.availableQuantity = parseFloat(req.body[field]);
       } else if (field === 'pricePerKg' || field === 'pricePerUnit') {
         updates.pricePerKg = parseFloat(req.body[field]);
@@ -350,13 +410,15 @@ const updateCrop = async (req, res) => {
           updates.location = {
             type: 'Point',
             coordinates: [parseFloat(lng), parseFloat(lat)],
-            address: address || crop.location?.address
+            address: address || crop.location?.address,
           };
         }
       } else if (['name', 'category', 'description', 'soilType'].includes(field)) {
         updates[field] = sanitizer.sanitizeString(req.body[field]);
       } else if (field === 'images') {
-        updates.images = req.body[field].map((img) => ({ url: sanitizer.sanitizeUrl(img) })).filter(img => img.url);
+        updates.images = req.body[field]
+          .map((img) => ({ url: sanitizer.sanitizeUrl(img) }))
+          .filter((img) => img.url);
       } else if (['isNegotiable', 'organic', 'pickupAvailable', 'pesticides'].includes(field)) {
         updates[field] = Boolean(req.body[field]);
       } else {
@@ -364,8 +426,10 @@ const updateCrop = async (req, res) => {
       }
     }
 
-    const updated = await Crop.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
-      .populate('farmer', 'name phone email username');
+    const updated = await Crop.findByIdAndUpdate(req.params.id, updates, {
+      new: true,
+      runValidators: true,
+    }).populate('farmer', 'name phone email username');
 
     logger.info(`Crop updated: ${req.params.id}`);
     return res.status(200).json({ success: true, message: 'Crop updated', data: updated });
@@ -386,9 +450,14 @@ const deleteCrop = async (req, res) => {
       return res.status(403).json({ success: false, error: 'You can only delete your own crops' });
     }
 
-    const activeOffers = await Offer.countDocuments({ crop: req.params.id, status: { $in: ['pending', 'accepted'] } });
+    const activeOffers = await Offer.countDocuments({
+      crop: req.params.id,
+      status: { $in: ['pending', 'accepted'] },
+    });
     if (activeOffers > 0) {
-      return res.status(400).json({ success: false, error: 'Cannot delete crop with active offers' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Cannot delete crop with active offers' });
     }
 
     // Soft delete
@@ -413,99 +482,119 @@ const getFarmerAnalytics = async (req, res) => {
     const mongoose = require('mongoose');
     const fId = new mongoose.Types.ObjectId(farmerId);
 
-    const [cropStats, offerStats, contractStats, revenueStats, topCrops, monthlyTrend] = await Promise.all([
-      // Total crops and availability
-      Crop.aggregate([
-        { $match: { farmer: fId, status: { $ne: 'deleted' } } },
-        {
-          $group: {
-            _id: null,
-            totalListings: { $sum: 1 },
-            totalQuantity: { $sum: '$quantity' },
-            avgPrice: { $avg: '$pricePerKg' },
-          }
-        },
-      ]),
+    const [cropStats, offerStats, contractStats, revenueStats, topCrops, monthlyTrend] =
+      await Promise.all([
+        // Total crops and availability
+        Crop.aggregate([
+          { $match: { farmer: fId, status: { $ne: 'deleted' } } },
+          {
+            $group: {
+              _id: null,
+              totalListings: { $sum: 1 },
+              totalQuantity: { $sum: '$quantity' },
+              avgPrice: { $avg: '$pricePerKg' },
+            },
+          },
+        ]),
 
-      // Offers received
-      Offer.aggregate([
-        { $match: { farmer: fId } },
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 },
-            avgPrice: { $avg: '$pricePerKg' },
-          }
-        },
-      ]),
+        // Offers received
+        Offer.aggregate([
+          { $match: { farmer: fId } },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              avgPrice: { $avg: '$pricePerKg' },
+            },
+          },
+        ]),
 
-      // Contracts by status
-      Contract.aggregate([
-        { $match: { farmer: fId } },
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 },
-            totalValue: { $sum: '$terms.totalAmount' },
-          }
-        },
-      ]),
+        // Contracts by status
+        Contract.aggregate([
+          { $match: { farmer: fId } },
+          {
+            $group: {
+              _id: '$status',
+              count: { $sum: 1 },
+              totalValue: { $sum: '$terms.totalAmount' },
+            },
+          },
+        ]),
 
-      // Total revenue from completed contracts
-      Contract.aggregate([
-        { $match: { farmer: fId, status: { $in: ['confirmed', 'completed'] } } },
-        {
-          $group: {
-            _id: null,
-            totalRevenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
-            totalDeals: { $sum: 1 },
-            avgDealValue: { $avg: '$terms.totalAmount' },
-          }
-        },
-      ]),
+        // Total revenue from completed contracts
+        Contract.aggregate([
+          { $match: { farmer: fId, status: { $in: ['confirmed', 'completed'] } } },
+          {
+            $group: {
+              _id: null,
+              totalRevenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
+              totalDeals: { $sum: 1 },
+              avgDealValue: { $avg: '$terms.totalAmount' },
+            },
+          },
+        ]),
 
-      // Top earning crops
-      Contract.aggregate([
-        { $match: { farmer: fId, status: { $in: ['confirmed', 'completed'] } } },
-        {
-          $group: {
-            _id: '$terms.cropName',
-            revenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
-            deals: { $sum: 1 },
-            quantity: { $sum: '$terms.quantity' },
-          }
-        },
-        { $sort: { revenue: -1 } },
-        { $limit: 5 },
-      ]),
-      
-      // Monthly revenue trend (last 6 months)
-      Contract.aggregate([
-        { 
-          $match: { 
-            farmer: fId, 
-            status: { $in: ['confirmed', 'completed'] },
-            updatedAt: { $gte: new Date(new Date().setMonth(new Date().getMonth() - 6)) }
-          } 
-        },
-        {
-          $group: {
-            _id: { $month: { $ifNull: ['$completedAt', '$updatedAt'] } },
-            revenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { '_id': 1 } }
-      ]),
-    ]);
+        // Top earning crops
+        Contract.aggregate([
+          { $match: { farmer: fId, status: { $in: ['confirmed', 'completed'] } } },
+          {
+            $group: {
+              _id: '$terms.cropName',
+              revenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
+              deals: { $sum: 1 },
+              quantity: { $sum: '$terms.quantity' },
+            },
+          },
+          { $sort: { revenue: -1 } },
+          { $limit: 5 },
+        ]),
 
-    const offerMap = offerStats.reduce((acc, s) => { acc[s._id] = s; return acc; }, {});
-    const contractMap = contractStats.reduce((acc, s) => { acc[s._id] = s; return acc; }, {});
+        // Monthly revenue trend (last 6 months)
+        Contract.aggregate([
+          {
+            $match: {
+              farmer: fId,
+              status: { $in: ['confirmed', 'completed'] },
+              updatedAt: { $gte: new Date(new Date().setMonth(new Date().getMonth() - 6)) },
+            },
+          },
+          {
+            $group: {
+              _id: { $month: { $ifNull: ['$completedAt', '$updatedAt'] } },
+              revenue: { $sum: { $ifNull: ['$terms.netAmount', '$terms.totalAmount'] } },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]),
+      ]);
+
+    const offerMap = offerStats.reduce((acc, s) => {
+      acc[s._id] = s;
+      return acc;
+    }, {});
+    const contractMap = contractStats.reduce((acc, s) => {
+      acc[s._id] = s;
+      return acc;
+    }, {});
     const revenueSummary = revenueStats[0] || { totalRevenue: 0, totalDeals: 0, avgDealValue: 0 };
     const crops = cropStats[0] || { totalListings: 0, totalQuantity: 0, avgPrice: 0 };
 
     // Process monthly trend to ensure all 6 months are present
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const currentMonth = new Date().getMonth() + 1; // 1-indexed
     const last6Months = [];
     for (let i = 5; i >= 0; i--) {
@@ -514,8 +603,8 @@ const getFarmerAnalytics = async (req, res) => {
       last6Months.push({ month: m, name: monthNames[m - 1], revenue: 0 });
     }
 
-    const trendData = last6Months.map(m => {
-      const found = monthlyTrend.find(r => r._id === m.month);
+    const trendData = last6Months.map((m) => {
+      const found = monthlyTrend.find((r) => r._id === m.month);
       return { ...m, revenue: found ? found.revenue : 0 };
     });
 
@@ -547,22 +636,37 @@ const getFarmerAnalytics = async (req, res) => {
         topCrops,
         monthlyTrend: trendData,
         tips: [
-          crops.totalListings === 0 
+          crops.totalListings === 0
             ? { tip: 'List your first crop to start receiving offers!', icon: 'add-circle' }
-            : { tip: `${topCrops[0]?._id || 'Your crops'} are in demand. Keep your inventory updated.`, icon: 'trending-up' },
-          (offerMap.pending?.count || 0) > 0 
-            ? { tip: `You have ${offerMap.pending.count} pending offers waiting for response.`, icon: 'mail-unread' }
-            : { tip: 'Buyers prefer verified farmers. Ensure your documents are up to date.', icon: 'checkmark-done' },
-          { tip: 'Enable village-to-city transport to reach 20% more buyers.', icon: 'car-sport' }
-        ]
+            : {
+                tip: `${topCrops[0]?._id || 'Your crops'} are in demand. Keep your inventory updated.`,
+                icon: 'trending-up',
+              },
+          (offerMap.pending?.count || 0) > 0
+            ? {
+                tip: `You have ${offerMap.pending.count} pending offers waiting for response.`,
+                icon: 'mail-unread',
+              }
+            : {
+                tip: 'Buyers prefer verified farmers. Ensure your documents are up to date.',
+                icon: 'checkmark-done',
+              },
+          { tip: 'Enable village-to-city transport to reach 20% more buyers.', icon: 'car-sport' },
+        ],
       },
     });
-
-
   } catch (err) {
     logger.error('getFarmerAnalytics error: ' + err.message);
     return res.status(500).json({ success: false, error: 'Failed to fetch analytics' });
   }
 };
 
-module.exports = { getCrops, getCropDetail, getFarmerCrops, addCrop, updateCrop, deleteCrop, getFarmerAnalytics };
+module.exports = {
+  getCrops,
+  getCropDetail,
+  getFarmerCrops,
+  addCrop,
+  updateCrop,
+  deleteCrop,
+  getFarmerAnalytics,
+};

@@ -25,7 +25,7 @@ class PorterService {
           customer: { name: 'KrushiMitra', mobile: { country_code: '+91', number: '9999999999' } },
           order_payload: [{ size: { weight_in_grams: weight * 1000 } }],
         },
-        { headers: this.getHeaders(), timeout: 10000 }
+        { headers: this.getHeaders(), timeout: 10000 },
       );
       return response.data;
     } catch (error) {
@@ -66,13 +66,15 @@ class PorterService {
             name: 'KrushiMitra',
             mobile: { country_code: '+91', number: '9999999999' },
           },
-          order_payload: [{
-            description: `${contract.terms?.cropName} - ${contract.terms?.quantity}kg`,
-            quantity: 1,
-            size: { weight_in_grams: (contract.terms?.quantity || 100) * 1000 },
-          }],
+          order_payload: [
+            {
+              description: `${contract.terms?.cropName} - ${contract.terms?.quantity}kg`,
+              quantity: 1,
+              size: { weight_in_grams: (contract.terms?.quantity || 100) * 1000 },
+            },
+          ],
         },
-        { headers: this.getHeaders(), timeout: 15000 }
+        { headers: this.getHeaders(), timeout: 15000 },
       );
 
       return {
@@ -94,10 +96,10 @@ class PorterService {
    */
   static async trackOrder(orderId) {
     try {
-      const response = await axios.get(
-        `${PORTER_BASE}/v1/orders/${orderId}`,
-        { headers: this.getHeaders(), timeout: 10000 }
-      );
+      const response = await axios.get(`${PORTER_BASE}/v1/orders/${orderId}`, {
+        headers: this.getHeaders(),
+        timeout: 10000,
+      });
       return response.data;
     } catch (error) {
       logger.error('PorterService.trackOrder error:', error.message);
@@ -113,7 +115,7 @@ class PorterService {
       const response = await axios.post(
         `${PORTER_BASE}/v1/orders/${orderId}/cancel`,
         { reason },
-        { headers: this.getHeaders(), timeout: 10000 }
+        { headers: this.getHeaders(), timeout: 10000 },
       );
       return { success: true, data: response.data };
     } catch (error) {
@@ -127,11 +129,13 @@ class PorterService {
     const weightCharge = weight * 2;
     return {
       isMock: true,
-      vehicles: [{
-        type: 'Mini Truck',
-        fare: { minor_amount: (baseFare + weightCharge) * 100 },
-        eta: { pickup: 60, drop: 180 },
-      }],
+      vehicles: [
+        {
+          type: 'Mini Truck',
+          fare: { minor_amount: (baseFare + weightCharge) * 100 },
+          eta: { pickup: 60, drop: 180 },
+        },
+      ],
     };
   }
 

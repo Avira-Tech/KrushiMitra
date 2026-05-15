@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { generateContractId } = require("../utils/helpers");
+const mongoose = require('mongoose');
+const { generateContractId } = require('../utils/helpers');
 
 const contractSchema = new mongoose.Schema(
   {
@@ -9,28 +9,30 @@ const contractSchema = new mongoose.Schema(
     },
     offer: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Offer",
+      ref: 'Offer',
       required: true,
     },
     crop: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Crop",
+      ref: 'Crop',
       required: true,
     },
     farmer: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     buyer: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
-    likedBy: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
-    }],
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     // Contract terms
     terms: {
       cropName: { type: String, required: true },
@@ -45,11 +47,11 @@ const contractSchema = new mongoose.Schema(
       deliveryServiceType: {
         type: String,
         enum: ['local', 'village_to_city', 'intercity_porter'],
-        default: 'local'
+        default: 'local',
       },
       paymentTerms: {
         type: String,
-        default: "50% advance, 50% on delivery",
+        default: '50% advance, 50% on delivery',
       },
       qualityGrade: String,
       specialConditions: String,
@@ -57,26 +59,26 @@ const contractSchema = new mongoose.Schema(
     // Status
     status: {
       type: String,
-      enum: ["pending", "active", "confirmed", "completed", "cancelled", "disputed"],
-      default: "active",
+      enum: ['pending', 'active', 'confirmed', 'completed', 'cancelled', 'disputed'],
+      default: 'active',
     },
     // Payment (Stripe Escrow)
     payment: {
       status: {
         type: String,
         enum: [
-          "pending",
-          "awaiting_buyer",
-          "awaiting_payment",
-          "requires_action",   // Stripe 3DS
-          "requires_capture",  // Stripe Authorized
-          "authorized",        // Stripe Succeeded/Authorized (synonym)
-          "in_escrow",         // Stripe Succeeded (manual capture)
-          "released",          // Stripe Captured (payout)
-          "refunded",
-          "failed",
+          'pending',
+          'awaiting_buyer',
+          'awaiting_payment',
+          'requires_action', // Stripe 3DS
+          'requires_capture', // Stripe Authorized
+          'authorized', // Stripe Succeeded/Authorized (synonym)
+          'in_escrow', // Stripe Succeeded (manual capture)
+          'released', // Stripe Captured (payout)
+          'refunded',
+          'failed',
         ],
-        default: "awaiting_buyer",
+        default: 'awaiting_buyer',
       },
       method: {
         type: String,
@@ -94,15 +96,8 @@ const contractSchema = new mongoose.Schema(
     delivery: {
       status: {
         type: String,
-        enum: [
-          "pending",
-          "scheduled",
-          "picked_up",
-          "in_transit",
-          "delivered",
-          "failed",
-        ],
-        default: "pending",
+        enum: ['pending', 'scheduled', 'picked_up', 'in_transit', 'delivered', 'failed'],
+        default: 'pending',
       },
       porterOrderId: String,
       trackingId: String,
@@ -116,7 +111,7 @@ const contractSchema = new mongoose.Schema(
         type: { type: String, enum: ['Point'], default: 'Point' },
         coordinates: [Number], // [lng, lat]
         address: String,
-        capturedAt: Date
+        capturedAt: Date,
       },
       locationCaptured: { type: Boolean, default: false },
     },
@@ -124,10 +119,10 @@ const contractSchema = new mongoose.Schema(
     dispute: {
       isDisputed: { type: Boolean, default: false },
       reason: String,
-      raisedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      raisedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       raisedAt: Date,
       resolution: String,
-      resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       resolvedAt: Date,
     },
     // Signatures (digital)
@@ -139,14 +134,14 @@ const contractSchema = new mongoose.Schema(
     completedAt: Date,
     cancelledAt: Date,
     cancellationReason: String,
-    cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     // Transport Details (New)
     transport: {
       provider: { type: String, enum: ['porter', 'blackbuck', 'local', 'none'], default: 'none' },
-      status: { 
-        type: String, 
-        enum: ['none', 'requested', 'confirmed', 'rejected'], 
-        default: 'none' 
+      status: {
+        type: String,
+        enum: ['none', 'requested', 'confirmed', 'rejected'],
+        default: 'none',
       },
       logisticsPartner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       truck: { type: mongoose.Schema.Types.ObjectId, ref: 'Truck' },
@@ -174,12 +169,12 @@ const contractSchema = new mongoose.Schema(
 
 contractSchema.index({ farmer: 1, status: 1 });
 contractSchema.index({ buyer: 1, status: 1 });
-contractSchema.index({ "payment.status": 1 });
-contractSchema.index({ "delivery.status": 1 });
+contractSchema.index({ 'payment.status': 1 });
+contractSchema.index({ 'delivery.status': 1 });
 contractSchema.index({ createdAt: -1 });
 
 // Pre-save: generate contract ID and calculate fees with precision
-contractSchema.pre("save", function (next) {
+contractSchema.pre('save', function (next) {
   if (this.isNew && !this.contractId) {
     this.contractId = generateContractId();
   }
@@ -193,6 +188,4 @@ contractSchema.pre("save", function (next) {
   next();
 });
 
-module.exports = mongoose.model("Contract", contractSchema);
-
-module.exports = mongoose.model("Contract", contractSchema);
+module.exports = mongoose.model('Contract', contractSchema);

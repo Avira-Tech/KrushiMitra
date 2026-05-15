@@ -7,7 +7,17 @@ class NotificationService {
   /**
    * Create and optionally push a notification
    */
-  static async create({ recipientId, senderId = null, type, title, body, data = {}, refModel, refId, priority = 'normal' }) {
+  static async create({
+    recipientId,
+    senderId = null,
+    type,
+    title,
+    body,
+    data = {},
+    refModel,
+    refId,
+    priority = 'normal',
+  }) {
     try {
       const notification = await Notification.create({
         recipient: recipientId,
@@ -34,10 +44,13 @@ class NotificationService {
       // Send push notification
       const User = require('../models/User');
       const recipient = await User.findById(recipientId).select('+fcmTokens');
-      
+
       if (recipient?.fcmTokens?.length) {
         // Calculate unread count for badge
-        const unreadCount = await Notification.countDocuments({ recipient: recipientId, isRead: false });
+        const unreadCount = await Notification.countDocuments({
+          recipient: recipientId,
+          isRead: false,
+        });
 
         // Send to all registered devices
         const pushResult = await sendMulticastNotification({
@@ -52,7 +65,7 @@ class NotificationService {
         await Notification.findByIdAndUpdate(notification._id, {
           isPushSent: successCount > 0,
           pushSentAt: new Date(),
-          metadata: { ...notification.metadata, fcmResponses: pushResult?.responses }
+          metadata: { ...notification.metadata, fcmResponses: pushResult?.responses },
         });
       }
 
@@ -67,7 +80,7 @@ class NotificationService {
    */
   static async createBulk(recipientIds, notificationData) {
     const promises = recipientIds.map((id) =>
-      this.create({ ...notificationData, recipientId: id })
+      this.create({ ...notificationData, recipientId: id }),
     );
     return Promise.allSettled(promises);
   }
@@ -181,7 +194,13 @@ class NotificationService {
   }
 
   static async notifyDeliveryUpdate(contract, recipientId, status, message) {
-    const statusEmoji = { scheduled: '📦', picked_up: '🚚', in_transit: '🚛', delivered: '✅', failed: '❌' };
+    const statusEmoji = {
+      scheduled: '📦',
+      picked_up: '🚚',
+      in_transit: '🚛',
+      delivered: '✅',
+      failed: '❌',
+    };
     return this.create({
       recipientId,
       type: 'delivery_update',
@@ -216,7 +235,7 @@ class NotificationService {
       refId: crop._id,
     });
   }
-  
+
   static async notifyOtp(contract, recipientId, type, otp) {
     const isPickup = type === 'pickup';
     return this.create({

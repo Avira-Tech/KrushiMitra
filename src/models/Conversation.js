@@ -21,14 +21,14 @@ const conversationSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Indexes for performance
 conversationSchema.index({ participants: 1 });
 conversationSchema.index({ lastMessageAt: -1 });
 
-// Ensure participants is treated as a unique set for 1-on-1 chats if needed, 
+// Ensure participants is treated as a unique set for 1-on-1 chats if needed,
 // but typically we handle this in the controller/socket with deterministic sorting.
 
 // ✅ FIX: Prevent model overwrite

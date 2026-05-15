@@ -1,14 +1,16 @@
 const Transport = require('../models/Transport');
 const logger = require('../utils/logger');
+const { parsePagination } = require('../utils/helpers');
+const { sendPaginated } = require('../utils/apiResponse');
 
 exports.getAllTransports = async (req, res) => {
   try {
-    const transports = await Transport.find().sort({ name: 1 });
-    res.status(200).json({
-      success: true,
-      count: transports.length,
-      data: transports
-    });
+    const { page, limit, skip } = parsePagination(req.query);
+    const [transports, total] = await Promise.all([
+      Transport.find().sort({ name: 1 }).skip(skip).limit(limit),
+      Transport.countDocuments(),
+    ]);
+    return sendPaginated(res, { data: transports, page, limit, total });
   } catch (err) {
     logger.error('getAllTransports error: ' + err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch transport options' });
@@ -45,7 +47,7 @@ exports.updateTransport = async (req, res) => {
   try {
     const transport = await Transport.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
-      runValidators: true
+      runValidators: true,
     });
     if (!transport) {
       return res.status(404).json({ success: false, error: 'Transport option not found' });

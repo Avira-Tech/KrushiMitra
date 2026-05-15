@@ -57,32 +57,39 @@ exports.getSupportResponse = async (userMessage, history = []) => {
     const BOT_ID = '000000000000000000000000';
 
     if (!process.env.GEMINI_API_KEY) {
-      return "Hello! I am the KrushiMitra AI. It seems my API key is not configured, but I can tell you that KrushiMitra is a platform connecting farmers and buyers directly with secure escrow payments and AI price predictions.";
+      return 'Hello! I am the KrushiMitra AI. It seems my API key is not configured, but I can tell you that KrushiMitra is a platform connecting farmers and buyers directly with secure escrow payments and AI price predictions.';
     }
 
     // Format history for Gemini
     const contents = [
       { role: 'user', parts: [{ text: PROJECT_CONTEXT }] },
-      { role: 'model', parts: [{ text: "Understood. I am ready to assist KrushiMitra users with any questions about the platform's functionality and features." }] }
+      {
+        role: 'model',
+        parts: [
+          {
+            text: "Understood. I am ready to assist KrushiMitra users with any questions about the platform's functionality and features.",
+          },
+        ],
+      },
     ];
 
     // Add recent history (last 5 messages)
-    history.forEach(h => {
+    history.forEach((h) => {
       contents.push({
         role: String(h.sender) === BOT_ID ? 'model' : 'user',
-        parts: [{ text: h.content }]
+        parts: [{ text: h.content }],
       });
     });
 
     // Add current message
     contents.push({ role: 'user', parts: [{ text: userMessage }] });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: contents,
-    });
+    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent({ contents });
+    const response = await result.response;
+    const text = response.text();
 
-    return response.text || "I am here to help with KrushiMitra. What would you like to know?";
+    return text || 'I am here to help with KrushiMitra. What would you like to know?';
   } catch (error) {
     logger.error('❌ AI Support Error:', error);
     return "I'm sorry, I'm having trouble processing your request right now. Please try again later or contact a human administrator.";

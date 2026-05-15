@@ -39,31 +39,39 @@ const verifyFileSignature = (buffer, mimeType) => {
   const bytes = buffer.slice(0, 4);
 
   if (mimeType === 'image/jpeg') {
-    return bytes[0] === FILE_SIGNATURES.jpeg[0] &&
-           bytes[1] === FILE_SIGNATURES.jpeg[1] &&
-           bytes[2] === FILE_SIGNATURES.jpeg[2];
+    return (
+      bytes[0] === FILE_SIGNATURES.jpeg[0] &&
+      bytes[1] === FILE_SIGNATURES.jpeg[1] &&
+      bytes[2] === FILE_SIGNATURES.jpeg[2]
+    );
   }
 
   if (mimeType === 'image/png') {
-    return bytes[0] === FILE_SIGNATURES.png[0] &&
-           bytes[1] === FILE_SIGNATURES.png[1] &&
-           bytes[2] === FILE_SIGNATURES.png[2] &&
-           bytes[3] === FILE_SIGNATURES.png[3];
+    return (
+      bytes[0] === FILE_SIGNATURES.png[0] &&
+      bytes[1] === FILE_SIGNATURES.png[1] &&
+      bytes[2] === FILE_SIGNATURES.png[2] &&
+      bytes[3] === FILE_SIGNATURES.png[3]
+    );
   }
 
   if (mimeType === 'image/webp') {
     // WebP files start with RIFF
-    return bytes[0] === FILE_SIGNATURES.webp[0] &&
-           bytes[1] === FILE_SIGNATURES.webp[1] &&
-           bytes[2] === FILE_SIGNATURES.webp[2] &&
-           bytes[3] === FILE_SIGNATURES.webp[3];
+    return (
+      bytes[0] === FILE_SIGNATURES.webp[0] &&
+      bytes[1] === FILE_SIGNATURES.webp[1] &&
+      bytes[2] === FILE_SIGNATURES.webp[2] &&
+      bytes[3] === FILE_SIGNATURES.webp[3]
+    );
   }
 
   if (mimeType === 'application/pdf') {
-    return bytes[0] === FILE_SIGNATURES.pdf[0] &&
-           bytes[1] === FILE_SIGNATURES.pdf[1] &&
-           bytes[2] === FILE_SIGNATURES.pdf[2] &&
-           bytes[3] === FILE_SIGNATURES.pdf[3];
+    return (
+      bytes[0] === FILE_SIGNATURES.pdf[0] &&
+      bytes[1] === FILE_SIGNATURES.pdf[1] &&
+      bytes[2] === FILE_SIGNATURES.pdf[2] &&
+      bytes[3] === FILE_SIGNATURES.pdf[3]
+    );
   }
 
   return false;
@@ -142,7 +150,10 @@ const validateUploadedFile = async (file) => {
         'image/webp': ['webp'],
       };
 
-      if (allowedFormats[file.mimetype] && !allowedFormats[file.mimetype].includes(metadata.format)) {
+      if (
+        allowedFormats[file.mimetype] &&
+        !allowedFormats[file.mimetype].includes(metadata.format)
+      ) {
         throw new Error('Image format mismatch with MIME type');
       }
 

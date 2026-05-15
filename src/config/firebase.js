@@ -18,7 +18,7 @@ const initFirebase = () => {
     if (privateKey.includes('\\n')) {
       privateKey = privateKey.replace(/\\n/g, '\n');
     }
-    
+
     // Add PEM headers if missing (common mistake in .env)
     if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
       privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----`;
@@ -41,7 +41,7 @@ const initFirebase = () => {
     return firebaseApp;
   } catch (error) {
     const isAsn1Error = error.message.includes('ASN.1');
-    const msg = isAsn1Error 
+    const msg = isAsn1Error
       ? 'Invalid RSA Key format. Please ensure FIREBASE_PRIVATE_KEY is a full PEM string from your Service Account JSON.'
       : error.message;
     logger.error(`Firebase init error: ${msg}`);
@@ -56,9 +56,9 @@ const sendPushNotification = async ({ token, title, body, data = {}, badge = 0 }
       notification: { title, body },
       data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
       token,
-      android: { 
-        priority: 'high', 
-        notification: { sound: 'default', channelId: 'krushimitra', notificationCount: badge } 
+      android: {
+        priority: 'high',
+        notification: { sound: 'default', channelId: 'krushimitra', notificationCount: badge },
       },
       apns: { payload: { aps: { sound: 'default', badge } } },
     };
@@ -77,8 +77,8 @@ const sendMulticastNotification = async ({ tokens, title, body, data = {}, badge
       notification: { title, body },
       data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
       tokens,
-      android: { 
-        notification: { sound: 'default', channelId: 'krushimitra', notificationCount: badge } 
+      android: {
+        notification: { sound: 'default', channelId: 'krushimitra', notificationCount: badge },
       },
       apns: { payload: { aps: { sound: 'default', badge } } },
     };

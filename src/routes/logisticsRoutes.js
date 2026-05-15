@@ -8,15 +8,23 @@ const {
   verifyPickup,
   verifyDelivery,
   getSuggestedTrucks,
-  resendOtp
+  resendOtp,
 } = require('../controllers/logisticsController');
 
 router.use(protect);
 
 // Truck Management
 router.post('/trucks', restrictTo('logistics'), registerTruck);
-router.get('/my-trucks', restrictTo('logistics'), require('../controllers/logisticsController').getMyTrucks);
-router.delete('/trucks/:id', restrictTo('logistics'), require('../controllers/logisticsController').deleteTruck);
+router.get(
+  '/my-trucks',
+  restrictTo('logistics'),
+  require('../controllers/logisticsController').getMyTrucks,
+);
+router.delete(
+  '/trucks/:id',
+  restrictTo('logistics'),
+  require('../controllers/logisticsController').deleteTruck,
+);
 router.get('/suggested', getSuggestedTrucks);
 
 // Job Management

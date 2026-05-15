@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 const connectDB = async () => {
   try {
     const mongoURI = process.env.MONGODB_URI;
-    
+
     if (!mongoURI) {
       throw new Error('MONGODB_URI environment variable is not set');
     }
@@ -21,16 +21,24 @@ const connectDB = async () => {
     };
 
     const conn = await mongoose.connect(mongoURI, options);
-    
-    // Explicitly sync indexes for high-concurrency performance (esp. 2dsphere)
-    conn.model('Crop').syncIndexes().catch(err => logger.error('Index sync failed:', err));
 
     // Explicitly sync indexes for high-concurrency performance (esp. 2dsphere)
-    conn.model('Crop').syncIndexes().catch(err => logger.error('Index sync failed:', err));
+    conn
+      .model('Crop')
+      .syncIndexes()
+      .catch((err) => logger.error('Index sync failed:', err));
+
+    // Explicitly sync indexes for high-concurrency performance (esp. 2dsphere)
+    conn
+      .model('Crop')
+      .syncIndexes()
+      .catch((err) => logger.error('Index sync failed:', err));
 
     logger.info(`✅ MongoDB Connected: ${conn.connection.host}`);
     logger.info(`📦 Database: ${conn.connection.name}`);
-    logger.info(`🔐 Connection State: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+    logger.info(
+      `🔐 Connection State: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`,
+    );
 
     // ─── Connection Event Handlers ────────────────────────────────────────
     mongoose.connection.on('error', (err) => {
@@ -59,7 +67,7 @@ const connectDB = async () => {
       code: error.code,
       mongoURI: process.env.MONGODB_URI?.split('@')[0],
     });
-    
+
     // Exit with error
     process.exit(1);
   }

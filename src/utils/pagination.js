@@ -127,20 +127,9 @@ const escapeRegex = (str) => {
  * Build a complex query with filters, sort, and pagination
  */
 const buildQuery = (queryParams, config = {}) => {
-  const {
-    allowedFilters = {},
-    allowedSortFields = [],
-    defaultLimit = 20,
-    maxLimit = 100,
-  } = config;
+  const { allowedFilters = {}, allowedSortFields = [], defaultLimit = 20, maxLimit = 100 } = config;
 
-  const {
-    page = 1,
-    limit = defaultLimit,
-    sortBy,
-    order,
-    ...filterParams
-  } = queryParams;
+  const { page = 1, limit = defaultLimit, sortBy, order, ...filterParams } = queryParams;
 
   // Validate and cap limit
   const parsedPage = Math.max(1, parseInt(page, 10) || 1);

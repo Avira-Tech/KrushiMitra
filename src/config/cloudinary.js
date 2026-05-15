@@ -37,7 +37,7 @@ const uploadBufferToCloudinary = (buffer, folder = 'krushimitra') => {
           url: result.secure_url,
           publicId: result.public_id,
         });
-      }
+      },
     );
     uploadStream.end(buffer);
   });

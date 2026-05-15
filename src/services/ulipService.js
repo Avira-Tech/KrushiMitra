@@ -10,12 +10,12 @@ class ULIPService {
       // Mocking ULIP API registration
       const ulipRefId = `ULIP-REG-${Math.floor(Math.random() * 1000000)}`;
       logger.info(`Transport registered with ULIP: ${ulipRefId}`);
-      
+
       return {
         success: true,
         ulipRefId,
         trackingStatus: 'registered_with_vahan',
-        message: 'Vehicle tracking enabled via National Logistics Portal'
+        message: 'Vehicle tracking enabled via National Logistics Portal',
       };
     } catch (error) {
       logger.error('ULIPService.registerTransportOrder error:', error.message);
@@ -36,7 +36,7 @@ class ULIPService {
         fitnessValidUntil: '2027-12-31',
         insuranceValidUntil: '2026-10-15',
         permitType: 'National Permit (All India)',
-        isBlacklisted: false
+        isBlacklisted: false,
       };
     } catch (error) {
       logger.error('ULIPService.getVahanDetails error:', error.message);

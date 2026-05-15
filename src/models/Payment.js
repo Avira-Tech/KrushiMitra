@@ -31,15 +31,15 @@ const paymentSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
-        'awaiting_payment',   // user hasn’t paid yet
-        'initiated',          // Razorpay order created
-        'paid',               // Razorpay success
-        'captured',           // payment captured by webhook or manual verification
-        'in_escrow',          // locked
-        'released',           // sent to farmer
+        'awaiting_payment', // user hasn’t paid yet
+        'initiated', // Razorpay order created
+        'paid', // Razorpay success
+        'captured', // payment captured by webhook or manual verification
+        'in_escrow', // locked
+        'released', // sent to farmer
         'failed',
         'refunded',
-        'refund_initiated'
+        'refund_initiated',
       ],
       default: 'awaiting_payment',
     },
@@ -114,7 +114,7 @@ const paymentSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Indexes

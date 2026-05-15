@@ -9,7 +9,9 @@ let farmerToken, farmerId, cropId;
 
 describe('Crop API', () => {
   beforeAll(async () => {
-    await mongoose.connect(process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/krushimitra_test');
+    await mongoose.connect(
+      process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/krushimitra_test',
+    );
 
     // Create test farmer
     const farmer = await User.create({
@@ -68,9 +70,13 @@ describe('Crop API', () => {
     });
 
     it('should reject crop creation without auth', async () => {
-      const res = await request(app)
-        .post('/api/v1/crops')
-        .send({ name: 'Test', quantity: 100, pricePerKg: 10, quality: 'A', harvestDate: '2024-03-15' });
+      const res = await request(app).post('/api/v1/crops').send({
+        name: 'Test',
+        quantity: 100,
+        pricePerKg: 10,
+        quality: 'A',
+        harvestDate: '2024-03-15',
+      });
 
       expect(res.statusCode).toBe(401);
     });

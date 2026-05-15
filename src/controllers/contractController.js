@@ -18,7 +18,13 @@ const razorpayConfig = require('../config/razorpay');
 const PorterService = require('../services/porterService');
 const NotificationService = require('../services/notificationService');
 const { parsePagination } = require('../utils/helpers');
-const { sendSuccess, sendError, sendNotFound, sendForbidden, sendPaginated } = require('../utils/apiResponse');
+const {
+  sendSuccess,
+  sendError,
+  sendNotFound,
+  sendForbidden,
+  sendPaginated,
+} = require('../utils/apiResponse');
 const logger = require('../utils/logger');
 const { sendEmail } = require('../utils/emailService');
 const User = require('../models/User');
@@ -143,7 +149,10 @@ const choosePaymentType = async (req, res) => {
     const userId = req.user._id || req.user.id;
 
     if (paymentType !== 'advance') {
-      return sendError(res, { message: "Only 'advance' payment is currently supported", statusCode: 400 });
+      return sendError(res, {
+        message: "Only 'advance' payment is currently supported",
+        statusCode: 400,
+      });
     }
 
     const contract = await Contract.findById(req.params.id)
@@ -156,14 +165,21 @@ const choosePaymentType = async (req, res) => {
       return sendForbidden(res, 'Only the buyer can choose payment type');
     }
     if (!['awaiting_buyer', 'pending'].includes(contract.payment.status)) {
-      return sendError(res, { message: `Cannot choose payment — status is already ${contract.payment.status}`, statusCode: 400 });
+      return sendError(res, {
+        message: `Cannot choose payment — status is already ${contract.payment.status}`,
+        statusCode: 400,
+      });
     }
 
     // Advance payment choice - update status
-    const updatedContract = await Contract.findByIdAndUpdate(contract._id, {
-      'payment.type': 'advance',
-      'payment.status': 'awaiting_payment',
-    }, { new: true });
+    const updatedContract = await Contract.findByIdAndUpdate(
+      contract._id,
+      {
+        'payment.type': 'advance',
+        'payment.status': 'awaiting_payment',
+      },
+      { new: true },
+    );
 
     return sendSuccess(res, {
       message: 'Advance payment selected. Proceed to payment.',
@@ -187,7 +203,7 @@ const initiatePayment = async (req, res) => {
     const order = await razorpayConfig.createOrder({
       amount: grandTotal,
       receipt: `contract_${contract._id}`,
-      notes: { contractId: contract._id.toString() }
+      notes: { contractId: contract._id.toString() },
     });
 
     const payment = await Payment.create({
@@ -197,16 +213,16 @@ const initiatePayment = async (req, res) => {
       amount: grandTotal,
       type: 'razorpay',
       status: 'initiated',
-      razorpay: { orderId: order.id }
+      razorpay: { orderId: order.id },
     });
 
     await Contract.findByIdAndUpdate(contract._id, {
       'payment.status': 'awaiting_payment',
-      'payment.razorpayOrderId': order.id
+      'payment.razorpayOrderId': order.id,
     });
 
     return sendSuccess(res, {
-      data: { orderId: order.id, keyId: process.env.RAZORPAY_KEY_ID, amount: order.amount / 100 }
+      data: { orderId: order.id, keyId: process.env.RAZORPAY_KEY_ID, amount: order.amount / 100 },
     });
   } catch (err) {
     logger.error('initiatePayment error:', err);
@@ -219,7 +235,11 @@ const confirmPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    const isValid = razorpayConfig.verifyPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature });
+    const isValid = razorpayConfig.verifyPaymentSignature({
+      orderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
+      signature: razorpay_signature,
+    });
     if (!isValid) return sendError(res, { message: 'Invalid signature', statusCode: 400 });
 
     const payment = await Payment.findOneAndUpdate(
@@ -229,19 +249,23 @@ const confirmPayment = async (req, res) => {
         'razorpay.paymentId': razorpay_payment_id,
         processedAt: new Date(),
       },
-      { new: true }
+      { new: true },
     ).populate('contract');
 
     await Contract.findByIdAndUpdate(payment.contract._id, {
       status: 'confirmed',
       'payment.status': 'in_escrow',
-      'payment.paidAt': new Date()
+      'payment.paidAt': new Date(),
     });
 
     // Auto-book Transport after payment confirmation
     const contract = await Contract.findById(payment.contract._id).populate('farmer buyer');
-    if (contract && contract.transport.provider !== 'none' && contract.transport.status === 'confirmed') {
-      // For local transport, we already have details. 
+    if (
+      contract &&
+      contract.transport.provider !== 'none' &&
+      contract.transport.status === 'confirmed'
+    ) {
+      // For local transport, we already have details.
       // For porter/blackbuck, we would call their APIs here if not already booked.
       await Contract.findByIdAndUpdate(contract._id, {
         'delivery.status': 'scheduled',
@@ -267,7 +291,10 @@ const releasePayment = async (req, res) => {
     if (!isBuyer && !isAdmin) return sendForbidden(res, 'Only buyer or admin can release payment');
 
     if (contract.payment.status !== 'in_escrow') {
-      return sendError(res, { message: `Payment status is ${contract.payment.status}`, statusCode: 400 });
+      return sendError(res, {
+        message: `Payment status is ${contract.payment.status}`,
+        statusCode: 400,
+      });
     }
 
     await Contract.findByIdAndUpdate(contract._id, {
@@ -281,7 +308,7 @@ const releasePayment = async (req, res) => {
 
     await Payment.findOneAndUpdate(
       { contract: contract._id },
-      { status: 'released', releasedAt: new Date() }
+      { status: 'released', releasedAt: new Date() },
     );
 
     // Notify Farmer
@@ -325,7 +352,11 @@ const releasePayment = async (req, res) => {
     const totalReleased = (contract.terms.netAmount || 0) + (contract.terms.logisticsFee || 0);
     return sendSuccess(res, {
       message: `₹${totalReleased.toLocaleString('en-IN')} released!`,
-      data: { contractId: contract.contractId, farmerAmount: contract.terms.netAmount, logisticsAmount: contract.terms.logisticsFee },
+      data: {
+        contractId: contract.contractId,
+        farmerAmount: contract.terms.netAmount,
+        logisticsAmount: contract.terms.logisticsFee,
+      },
     });
   } catch (err) {
     logger.error('releasePayment error:', err);
@@ -356,14 +387,17 @@ const raiseDispute = async (req, res) => {
 
     const User = require('../models/User');
     const admins = await User.find({ role: 'admin' }).select('_id');
-    NotificationService.createBulk(admins.map((a) => a._id), {
-      type: 'dispute_raised',
-      title: '⚠️ Dispute Raised',
-      body: `Contract #${contract.contractId}: ${reason?.substring(0, 100)}`,
-      priority: 'urgent',
-      refModel: 'Contract',
-      refId: contract._id,
-    }).catch(() => { });
+    NotificationService.createBulk(
+      admins.map((a) => a._id),
+      {
+        type: 'dispute_raised',
+        title: '⚠️ Dispute Raised',
+        body: `Contract #${contract.contractId}: ${reason?.substring(0, 100)}`,
+        priority: 'urgent',
+        refModel: 'Contract',
+        refId: contract._id,
+      },
+    ).catch(() => {});
 
     return sendSuccess(res, { message: 'Dispute raised. Admin will review within 24 hours.' });
   } catch (err) {
@@ -380,8 +414,9 @@ const trackDelivery = async (req, res) => {
 
     let trackingData = { status: contract.delivery?.status || 'pending' };
     if (contract.delivery?.porterOrderId) {
-      trackingData = await PorterService.trackOrder(contract.delivery.porterOrderId)
-        .catch(() => ({ status: contract.delivery.status }));
+      trackingData = await PorterService.trackOrder(contract.delivery.porterOrderId).catch(() => ({
+        status: contract.delivery.status,
+      }));
     }
 
     return sendSuccess(res, {
@@ -415,7 +450,10 @@ const updateDeliveryLocation = async (req, res) => {
     }
 
     if (!['active', 'confirmed'].includes(contract.status)) {
-      return sendError(res, { message: `Location can only be updated for active or confirmed contracts. Current status: ${contract.status}`, statusCode: 400 });
+      return sendError(res, {
+        message: `Location can only be updated for active or confirmed contracts. Current status: ${contract.status}`,
+        statusCode: 400,
+      });
     }
 
     // Recalculate distance
@@ -465,7 +503,7 @@ const toggleLikeContract = async (req, res) => {
     await contract.save();
     return sendSuccess(res, {
       message: index === -1 ? 'Agreement liked' : 'Agreement unliked',
-      data: { isLiked: index === -1 }
+      data: { isLiked: index === -1 },
     });
   } catch (err) {
     logger.error('toggleLikeContract error:', err);
@@ -486,7 +524,10 @@ const sendContractEmail = async (req, res) => {
 
     const user = await User.findById(userId);
     if (!user || !user.email) {
-      return sendError(res, { message: 'User email not found. Cannot send email.', statusCode: 400 });
+      return sendError(res, {
+        message: 'User email not found. Cannot send email.',
+        statusCode: 400,
+      });
     }
 
     const htmlContent = `
@@ -542,21 +583,24 @@ const sendContractEmail = async (req, res) => {
   }
 };
 
-
 // u2500u2500u2500 POST /api/v1/contracts/:id/transport/quote u2500u2500u2500
 const getTransportQuote = async (req, res) => {
   try {
     const contract = await Contract.findById(req.params.id)
-      .populate("farmer", "location")
-      .populate("buyer", "location");
+      .populate('farmer', 'location')
+      .populate('buyer', 'location');
 
-    if (!contract) return sendNotFound(res, "Contract not found");
+    if (!contract) return sendNotFound(res, 'Contract not found');
 
     const farmerLoc = contract.farmer.location?.coordinates;
-    const buyerLoc = contract.delivery?.buyerLocation?.coordinates || contract.buyer.location?.coordinates;
+    const buyerLoc =
+      contract.delivery?.buyerLocation?.coordinates || contract.buyer.location?.coordinates;
 
     if (!farmerLoc || !buyerLoc) {
-      return sendError(res, { message: "Location data missing for farmer or buyer", statusCode: 400 });
+      return sendError(res, {
+        message: 'Location data missing for farmer or buyer',
+        statusCode: 400,
+      });
     }
 
     const distance = calculateDistance(farmerLoc[1], farmerLoc[0], buyerLoc[1], buyerLoc[0]);
@@ -566,46 +610,48 @@ const getTransportQuote = async (req, res) => {
     let provider;
 
     if (distance < 50) {
-      provider = "porter";
+      provider = 'porter';
       quote = await PorterService.getQuote({
         pickupLat: farmerLoc[1],
         pickupLng: farmerLoc[0],
         dropLat: buyerLoc[1],
         dropLng: buyerLoc[0],
-        weight
+        weight,
       });
     } else {
-      provider = "blackbuck";
+      provider = 'blackbuck';
       quote = await BlackBuckService.getQuote({
         pickupLat: farmerLoc[1],
         pickupLng: farmerLoc[0],
         dropLat: buyerLoc[1],
         dropLng: buyerLoc[0],
         weight,
-        distance
+        distance,
       });
     }
 
-    const estimatedCost = quote.vehicles?.[0]?.fare?.minor_amount ? quote.vehicles[0].fare.minor_amount / 100 : quote.vehicles?.[0]?.fare || 500;
+    const estimatedCost = quote.vehicles?.[0]?.fare?.minor_amount
+      ? quote.vehicles[0].fare.minor_amount / 100
+      : quote.vehicles?.[0]?.fare || 500;
 
     await Contract.findByIdAndUpdate(contract._id, {
-      "transport.provider": provider,
-      "transport.distanceKm": distance,
-      "transport.estimatedCost": estimatedCost,
+      'transport.provider': provider,
+      'transport.distanceKm': distance,
+      'transport.estimatedCost': estimatedCost,
     });
 
     return sendSuccess(res, {
-      message: "Transport quote generated",
+      message: 'Transport quote generated',
       data: {
         provider,
         distance,
         estimatedCost,
-        quote
-      }
+        quote,
+      },
     });
   } catch (err) {
-    logger.error("getTransportQuote error:", err);
-    return sendError(res, { message: "Failed to get transport quote", statusCode: 500 });
+    logger.error('getTransportQuote error:', err);
+    return sendError(res, { message: 'Failed to get transport quote', statusCode: 500 });
   }
 };
 
@@ -617,7 +663,8 @@ const requestTransport = async (req, res) => {
 
     const contract = await Contract.findById(req.params.id);
     if (!contract) return sendNotFound(res, 'Contract not found');
-    if (contract.buyer.toString() !== userId.toString()) return sendForbidden(res, 'Only buyer can request transport');
+    if (contract.buyer.toString() !== userId.toString())
+      return sendForbidden(res, 'Only buyer can request transport');
 
     const Truck = require('../models/Truck');
     const truck = await Truck.findById(truckId).populate('owner');
@@ -625,11 +672,11 @@ const requestTransport = async (req, res) => {
 
     const farmer = await User.findById(contract.farmer).select('location');
     const buyer = await User.findById(contract.buyer).select('location');
-    
+
     let distanceKm = 0;
     const buyerLoc = contract.delivery?.buyerLocation?.coordinates || buyer?.location?.coordinates;
     const farmerLoc = farmer?.location?.coordinates;
-    
+
     if (farmerLoc && farmerLoc.length >= 2 && buyerLoc && buyerLoc.length >= 2) {
       const fLat = farmerLoc[1];
       const fLng = farmerLoc[0];
@@ -666,7 +713,10 @@ const requestTransport = async (req, res) => {
       priority: 'high',
     }).catch(logger.error);
 
-    return sendSuccess(res, { message: 'Transport requested. Waiting for partner confirmation.', data: { estimatedCost } });
+    return sendSuccess(res, {
+      message: 'Transport requested. Waiting for partner confirmation.',
+      data: { estimatedCost },
+    });
   } catch (err) {
     logger.error('requestTransport error:', err);
     return sendError(res, { message: 'Failed to request transport', statusCode: 500 });
@@ -681,14 +731,14 @@ const respondTransport = async (req, res) => {
 
     const contract = await Contract.findById(req.params.id).populate('buyer');
     if (!contract) return sendNotFound(res, 'Contract not found');
-    
+
     if (contract.transport.logisticsPartner.toString() !== userId.toString()) {
       return sendForbidden(res, 'Only the assigned logistics partner can respond');
     }
 
     if (action === 'approve') {
       const truck = await require('../models/Truck').findById(contract.transport.truck);
-      
+
       await Contract.findByIdAndUpdate(contract._id, {
         'transport.status': 'confirmed',
         'transport.driverName': truck?.driverName,
@@ -710,7 +760,6 @@ const respondTransport = async (req, res) => {
         refId: contract._id,
         priority: 'high',
       }).catch(logger.error);
-
     } else {
       await Contract.findByIdAndUpdate(contract._id, {
         'transport.status': 'rejected',

@@ -19,12 +19,15 @@ const maskPII = winston.format((info) => {
   if (typeof info.message === 'string') {
     // Mask typical Indian phone numbers and generic emails
     info.message = info.message.replace(/(\+91|91|0)?[6-9]\d{9}/g, '***REDACTED_PHONE***');
-    info.message = info.message.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '***REDACTED_EMAIL***');
+    info.message = info.message.replace(
+      /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+      '***REDACTED_EMAIL***',
+    );
   }
 
   if (info.phone) info.phone = '***REDACTED***';
   if (info.email) info.email = '***REDACTED***';
-  if (info.otp)   info.otp   = '***';
+  if (info.otp) info.otp = '***';
 
   return info;
 });
@@ -36,7 +39,7 @@ const logger = winston.createLogger({
     errors({ stack: true }),
     maskPII(),
     splat(),
-    json()
+    json(),
   ),
   defaultMeta: { service: 'krushimitra-api' },
   transports: [
@@ -45,7 +48,7 @@ const logger = winston.createLogger({
         colorize({ all: true }),
         timestamp({ format: 'HH:mm:ss' }),
         errors({ stack: true }),
-        logFormat
+        logFormat,
       ),
     }),
     new winston.transports.File({
@@ -63,10 +66,12 @@ const logger = winston.createLogger({
 });
 
 if (process.env.NODE_ENV === 'production') {
-  logger.add(new winston.transports.File({
-    filename: path.join('logs', 'access.log'),
-    level: 'http',
-  }));
+  logger.add(
+    new winston.transports.File({
+      filename: path.join('logs', 'access.log'),
+      level: 'http',
+    }),
+  );
 }
 
 module.exports = logger;

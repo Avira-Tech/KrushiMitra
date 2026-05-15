@@ -18,7 +18,7 @@ const getPayoutSummary = async (req, res) => {
     // 1. Calculate Total Earnings (all released payments)
     const releasedPayments = await Payment.find({
       payee: farmerId,
-      status: 'released'
+      status: 'released',
     });
 
     const totalEarned = releasedPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -31,11 +31,11 @@ const getPayoutSummary = async (req, res) => {
     // 2. Identify which of these are already paid out or requested
     const paidOutIds = await Payout.find({
       farmer: farmerId,
-      status: { $in: ['processing', 'completed', 'pending'] }
+      status: { $in: ['processing', 'completed', 'pending'] },
     }).distinct('payment');
 
     const withdrawnAmount = releasedPayments
-      .filter(p => paidOutIds.map(id => id.toString()).includes(p._id.toString()))
+      .filter((p) => paidOutIds.map((id) => id.toString()).includes(p._id.toString()))
       .reduce((sum, p) => sum + p.amount, 0);
 
     const availableBalance = Math.max(0, totalEarned - withdrawnAmount);
@@ -44,14 +44,19 @@ const getPayoutSummary = async (req, res) => {
     const availablePayments = await Payment.find({
       payee: farmerId,
       status: 'released',
-      _id: { $nin: paidOutIds }
+      _id: { $nin: paidOutIds },
     }).populate('contract', 'terms.cropName');
 
-    // 4. Last few payouts
-    const recentPayouts = await Payout.find({ farmer: farmerId })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .populate('contract', 'terms.cropName');
+    // 4. Recent payouts (Paginated)
+    const { page, limit, skip } = require('../utils/helpers').parsePagination(req.query);
+    const [recentPayouts, totalPayouts] = await Promise.all([
+      Payout.find({ farmer: farmerId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('contract', 'terms.cropName'),
+      Payout.countDocuments({ farmer: farmerId }),
+    ]);
 
     return sendSuccess(res, {
       data: {
@@ -61,8 +66,9 @@ const getPayoutSummary = async (req, res) => {
         availableBalance,
         availablePayments,
         recentPayouts,
-        hasBankDetails: !!(req.user.bankDetails?.accountNumber)
-      }
+        pagination: { total: totalPayouts, page, limit },
+        hasBankDetails: !!req.user.bankDetails?.accountNumber,
+      },
     });
   } catch (err) {
     logger.error('getPayoutSummary error:', err);
@@ -82,8 +88,13 @@ const requestWithdrawal = async (req, res) => {
 
     // Check Security Block
     if (req.user.isSecurityBlocked) {
-      const remainingHours = Math.ceil((new Date(req.user.blockedUntil) - new Date()) / (1000 * 60 * 60));
-      return sendForbidden(res, `Security Block: Withdrawal is restricted for ${remainingHours} more hours due to multiple incorrect PIN attempts.`);
+      const remainingHours = Math.ceil(
+        (new Date(req.user.blockedUntil) - new Date()) / (1000 * 60 * 60),
+      );
+      return sendForbidden(
+        res,
+        `Security Block: Withdrawal is restricted for ${remainingHours} more hours due to multiple incorrect PIN attempts.`,
+      );
     }
 
     if (!paymentId) {
@@ -99,18 +110,27 @@ const requestWithdrawal = async (req, res) => {
     }
 
     if (payment.status !== 'released') {
-      return sendError(res, { message: 'Payment funds are not yet released for withdrawal', statusCode: 400 });
+      return sendError(res, {
+        message: 'Payment funds are not yet released for withdrawal',
+        statusCode: 400,
+      });
     }
 
     // 2. Check if already withdrawn
     const existingPayout = await Payout.findOne({ payment: paymentId });
     if (existingPayout) {
-      return sendError(res, { message: 'Withdrawal already requested for this payment', statusCode: 400 });
+      return sendError(res, {
+        message: 'Withdrawal already requested for this payment',
+        statusCode: 400,
+      });
     }
 
     // 3. Verify bank details exist
     if (!req.user.bankDetails?.accountNumber) {
-      return sendError(res, { message: 'Please add bank details before requesting withdrawal', statusCode: 400 });
+      return sendError(res, {
+        message: 'Please add bank details before requesting withdrawal',
+        statusCode: 400,
+      });
     }
 
     // 4. Create Payout record
@@ -128,14 +148,14 @@ const requestWithdrawal = async (req, res) => {
         accountHolderName: req.user.bankDetails.accountHolderName,
       },
       notes: notes || 'Withdrawal request',
-      initiatedAt: new Date()
+      initiatedAt: new Date(),
     });
 
     logger.info(`Withdrawal request ${payout._id} created for farmer ${farmerId}`);
 
     return sendSuccess(res, {
       message: 'Withdrawal request submitted for processing',
-      data: payout
+      data: payout,
     });
   } catch (err) {
     logger.error('requestWithdrawal error:', err);
@@ -145,5 +165,5 @@ const requestWithdrawal = async (req, res) => {
 
 module.exports = {
   getPayoutSummary,
-  requestWithdrawal
+  requestWithdrawal,
 };

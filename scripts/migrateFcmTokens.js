@@ -1,8 +1,8 @@
 /**
  * migrateFcmTokens.js
- * 
+ *
  * Migration script to move existing single 'fcmToken' strings to the new 'fcmTokens' array.
- * 
+ *
  * Usage:
  * NODE_PATH=./src node scripts/migrateFcmTokens.js
  */
@@ -11,10 +11,13 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 // Define a minimal User schema for the migration
-const UserSchema = new mongoose.Schema({
-  fcmToken: String,
-  fcmTokens: [String]
-}, { strict: false });
+const UserSchema = new mongoose.Schema(
+  {
+    fcmToken: String,
+    fcmTokens: [String],
+  },
+  { strict: false },
+);
 
 const User = mongoose.model('User', UserSchema);
 
@@ -25,11 +28,8 @@ async function runMigration() {
     console.log('Connected.');
 
     // 1. Find all users with the old fcmToken field
-    const usersToUpdate = await User.find({ 
-      $or: [
-        { fcmToken: { $exists: true, $ne: null } },
-        { fcmTokens: { $exists: false } }
-      ]
+    const usersToUpdate = await User.find({
+      $or: [{ fcmToken: { $exists: true, $ne: null } }, { fcmTokens: { $exists: false } }],
     });
 
     console.log(`Found ${usersToUpdate.length} users needing migration.`);
@@ -41,7 +41,7 @@ async function runMigration() {
       const currentTokens = user.fcmTokens || [];
 
       const update = { $set: { fcmTokens: currentTokens } };
-      
+
       if (oldToken && !currentTokens.includes(oldToken)) {
         update.$addToSet = { fcmTokens: oldToken };
       }
@@ -56,7 +56,7 @@ async function runMigration() {
 
       await User.findByIdAndUpdate(user._id, update);
       migratedCount++;
-      
+
       if (migratedCount % 10 === 0) {
         console.log(`Migrated ${migratedCount} users...`);
       }

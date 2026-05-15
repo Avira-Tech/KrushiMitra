@@ -7,7 +7,7 @@ const logger = require('./logger');
 const generateAccessToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: '15m', // Enforce 15 minutes
-    issuer:   'krushimitra-api',
+    issuer: 'krushimitra-api',
     audience: 'krushimitra-app',
   });
 };
@@ -19,7 +19,7 @@ const generateRefreshToken = (payload) => {
   // Use a different secret for refresh tokens for defense-in-depth
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
     expiresIn: '7d', // 7 days
-    issuer:   'krushimitra-api',
+    issuer: 'krushimitra-api',
     audience: 'krushimitra-app',
   });
 };
@@ -29,7 +29,7 @@ const generateRefreshToken = (payload) => {
  */
 const verifyAccessToken = (token) => {
   return jwt.verify(token, process.env.JWT_SECRET, {
-    issuer:   'krushimitra-api',
+    issuer: 'krushimitra-api',
     audience: 'krushimitra-app',
   });
 };
@@ -39,7 +39,7 @@ const verifyAccessToken = (token) => {
  */
 const verifyRefreshToken = (token) => {
   return jwt.verify(token, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
-    issuer:   'krushimitra-api',
+    issuer: 'krushimitra-api',
     audience: 'krushimitra-app',
   });
 };
@@ -53,13 +53,13 @@ const generateTokenPair = (user) => {
     id: user._id || user.id,
     role: user.role,
     phone: user.phone,
-    csrfToken, 
+    csrfToken,
   };
-  
+
   return {
-    accessToken:  generateAccessToken(payload),
+    accessToken: generateAccessToken(payload),
     refreshToken: generateRefreshToken({ id: user._id || user.id }),
-    expiresIn:    15 * 60, // returns seconds
+    expiresIn: 15 * 60, // returns seconds
     csrfToken,
   };
 };

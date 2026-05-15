@@ -3,7 +3,9 @@ const { body, validationResult } = require('express-validator');
 
 const createCropSchema = Joi.object({
   name: Joi.string().min(2).max(100).required().trim(),
-  category: Joi.string().valid('grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other').default('other'),
+  category: Joi.string()
+    .valid('grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other')
+    .default('other'),
   quantity: Joi.number().positive().required(),
   quantityUnit: Joi.string().valid('kg', 'quintal', 'ton').default('kg'),
   pricePerKg: Joi.number().positive().required(),
@@ -38,7 +40,9 @@ const createCropSchema = Joi.object({
 
 const updateCropSchema = Joi.object({
   name: Joi.string().min(2).max(100).optional().trim(),
-  category: Joi.string().valid('grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other').optional(),
+  category: Joi.string()
+    .valid('grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other')
+    .optional(),
   quantity: Joi.number().positive().optional(),
   quantityUnit: Joi.string().valid('kg', 'quintal', 'ton').optional(),
   pricePerKg: Joi.number().positive().optional(),
@@ -145,37 +149,29 @@ const getCropsSchema = Joi.object({
 //     .isBoolean().withMessage('Pesticides must be boolean'),
 // ];
 const addCropSchema = [
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Crop name is required'),
+  body('name').trim().notEmpty().withMessage('Crop name is required'),
 
   body('category')
     .trim()
-    .notEmpty().withMessage('Category is required')
+    .notEmpty()
+    .withMessage('Category is required')
     // MUST MATCH MONGOOSE ENUM:
     .isIn(['grain', 'vegetable', 'fruit', 'spice', 'oilseed', 'fiber', 'pulse', 'other'])
     .withMessage('Invalid category'),
 
-  body('quantity')
-    .isFloat({ min: 0.1 }).withMessage('Quantity must be greater than 0'),
+  body('quantity').isFloat({ min: 0.1 }).withMessage('Quantity must be greater than 0'),
 
   // Change 'pricePerUnit' to 'pricePerKg' to match your payload
-  body('pricePerKg')
-    .isFloat({ min: 0.1 }).withMessage('Price must be greater than 0'),
+  body('pricePerKg').isFloat({ min: 0.1 }).withMessage('Price must be greater than 0'),
 
-  body('quality')
-    .isIn(['A', 'B', 'C']).withMessage('Invalid quality grade'),
+  body('quality').isIn(['A', 'B', 'C']).withMessage('Invalid quality grade'),
 
-  body('harvestDate')
-    .isISO8601().withMessage('Invalid harvest date format'),
+  body('harvestDate').isISO8601().withMessage('Invalid harvest date format'),
 
-  body('images')
-    .isArray({ min: 1 }).withMessage('At least 1 image required'),
+  body('images').isArray({ min: 1 }).withMessage('At least 1 image required'),
 
-  body('location.latitude')
-    .isFloat().withMessage('Invalid latitude'),
+  body('location.latitude').isFloat().withMessage('Invalid latitude'),
 
-  body('location.longitude')
-    .isFloat().withMessage('Invalid longitude'),
+  body('location.longitude').isFloat().withMessage('Invalid longitude'),
 ];
 module.exports = { createCropSchema, updateCropSchema, getCropsSchema, addCropSchema };

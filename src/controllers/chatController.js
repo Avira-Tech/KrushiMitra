@@ -5,7 +5,6 @@ const logger = require('../utils/logger');
 const socketService = require('../utils/socketService');
 const { RtcTokenBuilder, RtcRole } = require('agora-token');
 
-
 /**
  * Start a conversation or find existing one
  * POST /api/v1/chats/start
@@ -59,25 +58,29 @@ const getConversations = async (req, res) => {
       .limit(parseInt(limit));
 
     // Calculate unread counts for each conversation
-    const conversations = await Promise.all(conversationsRaw.map(async (conv) => {
-      const unreadCount = await Message.countDocuments({
-        conversationId: conv._id,
-        recipient: userId,
-        isRead: false,
-        deletedBy: { $ne: userId }
-      });
-      return { ...conv.toObject(), unreadCount };
-    }));
+    const conversations = await Promise.all(
+      conversationsRaw.map(async (conv) => {
+        const unreadCount = await Message.countDocuments({
+          conversationId: conv._id,
+          recipient: userId,
+          isRead: false,
+          deletedBy: { $ne: userId },
+        });
+        return { ...conv.toObject(), unreadCount };
+      }),
+    );
 
     const totalUnreadCount = await Message.countDocuments({
       recipient: userId,
       isRead: false,
-      deletedBy: { $ne: userId }
+      deletedBy: { $ne: userId },
     });
 
     const total = await Conversation.countDocuments({ participants: userId });
 
-    logger.info(`[Chat] getConversations for ${userId}: found ${conversations.length} / ${total}. Total Unread: ${totalUnreadCount}`);
+    logger.info(
+      `[Chat] getConversations for ${userId}: found ${conversations.length} / ${total}. Total Unread: ${totalUnreadCount}`,
+    );
 
     return res.status(200).json({
       success: true,
@@ -85,7 +88,6 @@ const getConversations = async (req, res) => {
       totalUnreadCount,
       pagination: { total, skip: parseInt(skip), limit: parseInt(limit) },
     });
-
   } catch (error) {
     logger.error('❌ Error fetching conversations:', error);
     return res.status(500).json({ success: false, error: 'Failed to fetch conversations' });
@@ -109,12 +111,12 @@ const getMessages = async (req, res) => {
 
     const messages = await Message.find({
       conversationId,
-      deletedBy: { $ne: userId }
+      deletedBy: { $ne: userId },
     })
       .populate('sender', 'name avatar')
       .populate({
         path: 'offer',
-        populate: { path: 'crop', select: 'name images pricePerKg' }
+        populate: { path: 'crop', select: 'name images pricePerKg' },
       })
       .sort({ createdAt: -1 })
       .skip(parseInt(skip))
@@ -147,14 +149,19 @@ const deleteMessage = async (req, res) => {
     if (!message) return res.status(404).json({ success: false, error: 'Message not found' });
 
     if (message.sender.toString() !== userId && mode === 'everyone') {
-      return res.status(403).json({ success: false, error: 'Can only delete your own messages for everyone' });
+      return res
+        .status(403)
+        .json({ success: false, error: 'Can only delete your own messages for everyone' });
     }
 
     if (mode === 'everyone') {
       const fifteenMinutes = 15 * 60 * 1000;
       const timeDiff = Date.now() - new Date(message.createdAt).getTime();
       if (timeDiff > fifteenMinutes) {
-        return res.status(400).json({ success: false, error: 'Messages can only be deleted for everyone within 15 minutes' });
+        return res.status(400).json({
+          success: false,
+          error: 'Messages can only be deleted for everyone within 15 minutes',
+        });
       }
 
       message.content = '🚫 This message was deleted';
@@ -167,7 +174,7 @@ const deleteMessage = async (req, res) => {
       socketService.emitToRoom(`conversation:${message.conversationId}`, 'message:delete', {
         messageId: message._id,
         conversationId: message.conversationId,
-        content: message.content
+        content: message.content,
       });
     } else {
       // Soft delete for current user only
@@ -208,7 +215,9 @@ const editMessage = async (req, res) => {
     const timeDiff = Date.now() - new Date(message.createdAt).getTime();
 
     if (timeDiff > fifteenMinutes) {
-      return res.status(400).json({ success: false, error: 'Messages can only be edited within 15 minutes' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Messages can only be edited within 15 minutes' });
     }
 
     message.content = content;
@@ -220,7 +229,7 @@ const editMessage = async (req, res) => {
       messageId: message._id,
       conversationId: message.conversationId,
       content: message.content,
-      editedAt: message.editedAt
+      editedAt: message.editedAt,
     });
 
     return res.status(200).json({ success: true, data: message });
@@ -272,7 +281,7 @@ const toggleReaction = async (req, res) => {
     if (!message) return res.status(404).json({ success: false, error: 'Message not found' });
 
     const existingReactionIndex = message.reactions.findIndex(
-      (r) => r.user.toString() === userId && r.emoji === emoji
+      (r) => r.user.toString() === userId && r.emoji === emoji,
     );
 
     if (existingReactionIndex > -1) {
@@ -290,7 +299,7 @@ const toggleReaction = async (req, res) => {
     const room = `conversation:${message.conversationId}`;
     socketService.emitToRoom(room, 'message:reaction', {
       messageId: message._id,
-      reactions: message.reactions
+      reactions: message.reactions,
     });
 
     return res.status(200).json({ success: true, data: message.reactions });
@@ -318,7 +327,7 @@ const generateAgoraToken = async (req, res) => {
     if (!appId || !appCertificate || appId === 'your_agora_app_id') {
       return res.status(500).json({
         success: false,
-        error: 'Agora credentials not configured on server'
+        error: 'Agora credentials not configured on server',
       });
     }
 
@@ -332,7 +341,7 @@ const generateAgoraToken = async (req, res) => {
       uid,
       rtcRole,
       privilegeExpireTime,
-      privilegeExpireTime
+      privilegeExpireTime,
     );
 
     return res.status(200).json({
@@ -341,8 +350,8 @@ const generateAgoraToken = async (req, res) => {
         token,
         channelName,
         uid,
-        appId
-      }
+        appId,
+      },
     });
   } catch (error) {
     logger.error('❌ Error generating Agora token:', error);
@@ -371,7 +380,7 @@ const getAdminForChat = async (req, res) => {
         avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png',
         status: 'active',
         isActive: true,
-        isVerified: true
+        isVerified: true,
       });
     }
 
@@ -395,7 +404,7 @@ const getChatContext = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
 
-    const otherId = conversation.participants.find(p => p.toString() !== userId.toString());
+    const otherId = conversation.participants.find((p) => p.toString() !== userId.toString());
     if (!otherId) return res.status(404).json({ success: false, error: 'Recipient not found' });
 
     // 1. Check for Active/Confirmed Contracts first
@@ -403,9 +412,9 @@ const getChatContext = async (req, res) => {
     const contract = await Contract.findOne({
       $or: [
         { farmer: userId, buyer: otherId },
-        { farmer: otherId, buyer: userId }
+        { farmer: otherId, buyer: userId },
       ],
-      status: { $in: ['active', 'confirmed', 'disputed'] }
+      status: { $in: ['active', 'confirmed', 'disputed'] },
     }).sort({ createdAt: -1 });
 
     if (contract) {
@@ -420,8 +429,8 @@ const getChatContext = async (req, res) => {
           contractId: contract.contractId,
           farmerId: contract.farmer,
           buyerId: contract.buyer,
-          logisticsPartnerId: contract.transport?.logisticsPartner
-        }
+          logisticsPartnerId: contract.transport?.logisticsPartner,
+        },
       });
     }
 
@@ -430,10 +439,11 @@ const getChatContext = async (req, res) => {
     const offer = await Offer.findOne({
       $or: [
         { farmer: userId, buyer: otherId },
-        { farmer: otherId, buyer: userId }
+        { farmer: otherId, buyer: userId },
       ],
-      status: { $in: ['pending', 'accepted', 'countered'] }
-    }).populate('crop', 'name')
+      status: { $in: ['pending', 'accepted', 'countered'] },
+    })
+      .populate('crop', 'name')
       .populate({ path: 'selectedTruck', select: 'owner' })
       .sort({ createdAt: -1 });
 
@@ -447,8 +457,8 @@ const getChatContext = async (req, res) => {
           amount: offer.amount,
           cropName: offer.crop?.name || 'Produce',
           senderId: offer.farmer,
-          logisticsPartnerId: offer.selectedTruck?.owner
-        }
+          logisticsPartnerId: offer.selectedTruck?.owner,
+        },
       });
     }
 
@@ -470,14 +480,14 @@ const markConversationAsRead = async (req, res) => {
 
     await Message.updateMany(
       { conversationId, recipient: userId, isRead: false },
-      { $set: { isRead: true, readAt: new Date() } }
+      { $set: { isRead: true, readAt: new Date() } },
     );
 
     // Notify other participants via socket if needed
     socketService.emitToRoom(`conversation:${conversationId}`, 'messages:read', {
       conversationId,
       userId,
-      readAt: new Date()
+      readAt: new Date(),
     });
 
     return res.status(200).json({ success: true, message: 'Messages marked as read' });

@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { getPrices, getPriceTrends, getPriceRecommendation } = require('../controllers/mandiController');
+const {
+  getPrices,
+  getPriceTrends,
+  getPriceRecommendation,
+} = require('../controllers/mandiController');
 
 // Public routes (no auth required)
 router.get('/prices', getPrices);

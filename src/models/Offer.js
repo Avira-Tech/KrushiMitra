@@ -52,7 +52,7 @@ const offerSchema = new mongoose.Schema(
     deliveryServiceType: {
       type: String,
       enum: ['local', 'village_to_city', 'intercity_porter'],
-      default: 'local'
+      default: 'local',
     },
     deliveryDate: { type: Date },
     paymentTerms: { type: String, trim: true, default: 'KrushiMitra Secure Escrow' },
@@ -108,7 +108,7 @@ const offerSchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 // ─── Compound indexes ─────────────────────────────────────────────────────────

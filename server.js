@@ -18,17 +18,17 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const cron = require('node-cron');
 
-const app         = require('./app');
-const connectDB   = require('./src/config/database');
+const app = require('./app');
+const connectDB = require('./src/config/database');
 const validateEnv = require('./src/config/envValidator');
-const { initFirebase }     = require('./src/config/firebase');
+const { initFirebase } = require('./src/config/firebase');
 const { initializeSocket } = require('./src/sockets/socketHandler');
 const { redis } = require('./src/config/redis');
 const { startDeliveryWorker } = require('./src/workers/deliveryWorker');
 const socketService = require('./src/utils/socketService');
 const logger = require('./src/utils/logger');
 
-const PORT     = Number(process.env.PORT) || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 if (PORT < 1024 || PORT > 65535) {
@@ -43,16 +43,17 @@ const server = http.createServer(app);
 // error" on real Android devices where ws is blocked by carrier/VPN.
 const io = new Server(server, {
   cors: {
-    origin:      NODE_ENV === 'production'
-      ? '*' // Allow all origins in production for mobile app compatibility
-      : true,                            // ← allow ALL in dev
+    origin:
+      NODE_ENV === 'production'
+        ? '*' // Allow all origins in production for mobile app compatibility
+        : true, // ← allow ALL in dev
     credentials: true,
-    methods:     ['GET', 'POST'],
+    methods: ['GET', 'POST'],
   },
-  transports:    ['polling', 'websocket'], // polling FIRST for mobile compatibility
+  transports: ['polling', 'websocket'], // polling FIRST for mobile compatibility
   allowUpgrades: true,
-  pingTimeout:   60_000,
-  pingInterval:  25_000,
+  pingTimeout: 60_000,
+  pingInterval: 25_000,
   maxHttpBufferSize: 1e6,
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000,
@@ -123,33 +124,47 @@ const setupCronJobs = () => {
 
   // Sync mandi prices every 6 hours
   cron.schedule('0 */6 * * *', () => {
-    withDistributedLock('mandi-price-sync', async () => {
-      const { syncMandiPrices } = require('./src/controllers/mandiController');
-      await Promise.all(['Gujarat', 'Maharashtra', 'Punjab', 'Haryana'].map((s) => syncMandiPrices(s)));
-      logger.info('Mandi prices synced');
-    }, 5 * 60 * 60);
+    withDistributedLock(
+      'mandi-price-sync',
+      async () => {
+        const { syncMandiPrices } = require('./src/controllers/mandiController');
+        await Promise.all(
+          ['Gujarat', 'Maharashtra', 'Punjab', 'Haryana'].map((s) => syncMandiPrices(s)),
+        );
+        logger.info('Mandi prices synced');
+      },
+      5 * 60 * 60,
+    );
   });
 
   // Expire stale offers every hour
   cron.schedule('0 * * * *', () => {
-    withDistributedLock('offer-expiry', async () => {
-      const Offer  = require('./src/models/Offer');
-      const result = await Offer.updateMany(
-        { status: 'pending', expiresAt: { $lt: new Date() } },
-        { status: 'expired' }
-      );
-      if (result.modifiedCount) logger.info(`Expired ${result.modifiedCount} offers`);
-    }, 55 * 60);
+    withDistributedLock(
+      'offer-expiry',
+      async () => {
+        const Offer = require('./src/models/Offer');
+        const result = await Offer.updateMany(
+          { status: 'pending', expiresAt: { $lt: new Date() } },
+          { status: 'expired' },
+        );
+        if (result.modifiedCount) logger.info(`Expired ${result.modifiedCount} offers`);
+      },
+      55 * 60,
+    );
   });
 
   // Clean read notifications older than 30 days — midnight
   cron.schedule('0 0 * * *', () => {
-    withDistributedLock('notification-cleanup', async () => {
-      const Notification = require('./src/models/Notification');
-      const cutoff       = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const result       = await Notification.deleteMany({ isRead: true, createdAt: { $lt: cutoff } });
-      if (result.deletedCount) logger.info(`Cleaned ${result.deletedCount} old notifications`);
-    }, 23 * 60 * 60);
+    withDistributedLock(
+      'notification-cleanup',
+      async () => {
+        const Notification = require('./src/models/Notification');
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const result = await Notification.deleteMany({ isRead: true, createdAt: { $lt: cutoff } });
+        if (result.deletedCount) logger.info(`Cleaned ${result.deletedCount} old notifications`);
+      },
+      23 * 60 * 60,
+    );
   });
 
   logger.info('Cron jobs scheduled');
@@ -171,10 +186,12 @@ const setupGracefulShutdown = () => {
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 
   process.on('unhandledRejection', (reason) => {
-    logger.error('Unhandled Rejection: ' + (reason instanceof Error ? reason.message : String(reason)));
+    logger.error(
+      'Unhandled Rejection: ' + (reason instanceof Error ? reason.message : String(reason)),
+    );
   });
   process.on('uncaughtException', (err) => {
     logger.error('Uncaught Exception: ' + err.message);

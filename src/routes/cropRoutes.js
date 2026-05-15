@@ -4,8 +4,20 @@ const { protect } = require('../middlewares/auth');
 const { validate } = require('../middlewares/validate');
 const { aiLimiter } = require('../middlewares/rateLimiter');
 const { searchLimiter } = require('../middlewares/endpointRateLimiters');
-const { createCropSchema, updateCropSchema, getCropsSchema } = require('../validators/cropValidators');
-const { addCrop, updateCrop, deleteCrop, getCrops, getCropDetail, getFarmerCrops, getFarmerAnalytics } = require('../controllers/cropController');
+const {
+  createCropSchema,
+  updateCropSchema,
+  getCropsSchema,
+} = require('../validators/cropValidators');
+const {
+  addCrop,
+  updateCrop,
+  deleteCrop,
+  getCrops,
+  getCropDetail,
+  getFarmerCrops,
+  getFarmerAnalytics,
+} = require('../controllers/cropController');
 const { predictPrice } = require('../controllers/aiController');
 
 // Public routes

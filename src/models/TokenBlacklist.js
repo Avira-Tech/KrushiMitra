@@ -39,13 +39,13 @@ const tokenBlacklistSchema = new mongoose.Schema(
   {
     timestamps: false, // Don't need createdAt/updatedAt
     collection: 'tokenBlacklist',
-  }
+  },
 );
 
 // Automatic cleanup: delete expired tokens
 tokenBlacklistSchema.index(
   { expiresAt: 1 },
-  { expireAfterSeconds: 0 } // TTL index
+  { expireAfterSeconds: 0 }, // TTL index
 );
 
 /**
@@ -103,10 +103,7 @@ class TokenBlacklistService {
 
       // This would normally include all active user tokens
       // For now, we clear their current sessions
-      const result = await TokenBlacklist.updateMany(
-        { userId },
-        { reason }
-      );
+      const result = await TokenBlacklist.updateMany({ userId }, { reason });
 
       return result;
     } catch (err) {

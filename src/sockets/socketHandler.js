@@ -71,7 +71,10 @@ const initializeSocket = (io) => {
         const count = await redis.hincrby(PRESENCE_KEY, userId, 1);
         if (count === 1) {
           // Broadcast online only on the first connection
-          io.to(`role:farmer`).to(`role:buyer`).to(`role:logistics`).emit('presence:online', { userId, timestamp: new Date() });
+          io.to(`role:farmer`)
+            .to(`role:buyer`)
+            .to(`role:logistics`)
+            .emit('presence:online', { userId, timestamp: new Date() });
         }
       } catch (err) {
         logger.error('Error tracking presence: ' + err.message);
@@ -92,15 +95,15 @@ const initializeSocket = (io) => {
           const now = new Date();
           await Message.updateMany(
             { recipient: userId, isDelivered: false },
-            { $set: { isDelivered: true, deliveredAt: now } }
+            { $set: { isDelivered: true, deliveredAt: now } },
           );
           // Notify senders in each conversation
-          const convIds = [...new Set(undelivered.map(m => m.conversationId.toString()))];
-          convIds.forEach(cid => {
-            io.to(`conversation:${cid}`).emit('messages:delivered', { 
-              conversationId: cid, 
+          const convIds = [...new Set(undelivered.map((m) => m.conversationId.toString()))];
+          convIds.forEach((cid) => {
+            io.to(`conversation:${cid}`).emit('messages:delivered', {
+              conversationId: cid,
               recipientId: userId,
-              deliveredAt: now 
+              deliveredAt: now,
             });
           });
         }
@@ -119,7 +122,8 @@ const initializeSocket = (io) => {
         if (!conv) return socket.emit('error', { message: 'Conversation not found' });
 
         const isParticipant = conv.participants.some((p) => p.toString() === userId);
-        if (!isParticipant) return socket.emit('error', { message: 'Not a participant in this conversation' });
+        if (!isParticipant)
+          return socket.emit('error', { message: 'Not a participant in this conversation' });
 
         socket.join(`conversation:${conversationId}`);
         logger.info(`User ${userId} joined conversation ${conversationId}`);
@@ -129,143 +133,158 @@ const initializeSocket = (io) => {
       }
     });
 
-    socket.on('message:send', async ({ conversationId, recipientId, content, messageType = 'text' }) => {
-      try {
-        if (!conversationId || !content?.trim()) {
-          return socket.emit('error', { message: 'conversationId and content are required' });
+    socket.on(
+      'message:send',
+      async ({ conversationId, recipientId, content, messageType = 'text' }) => {
+        try {
+          if (!conversationId || !content?.trim()) {
+            return socket.emit('error', { message: 'conversationId and content are required' });
+          }
+
+          // 1. Resolve/Upsert Conversation (prevents duplicates)
+          let conv;
+          if (conversationId) {
+            conv = await Conversation.findById(conversationId);
+          } else if (recipientId) {
+            // Deterministic sorting ensures [A,B] and [B,A] both map to [A,B]
+            const participants = [userId.toString(), recipientId.toString()].sort();
+            conv = await Conversation.findOneAndUpdate(
+              { participants: { $size: 2, $all: participants } },
+              {
+                $setOnInsert: { participants, lastMessageAt: new Date() },
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true },
+            );
+            conversationId = conv._id;
+          }
+
+          if (!conv)
+            return socket.emit('error', {
+              message: 'Conversation not found and recipientId not provided',
+            });
+
+          const isParticipant = conv.participants.some((p) => p.toString() === userId);
+          if (!isParticipant) return socket.emit('error', { message: 'Unauthorized' });
+
+          const recipientOnline = await isUserOnline(recipientId);
+
+          const message = await Message.create({
+            conversationId: conv._id,
+            sender: userId,
+            recipient: recipientId,
+            content: content.trim(),
+            messageType,
+            isDelivered: recipientOnline,
+            deliveredAt: recipientOnline ? new Date() : null,
+          });
+
+          await message.populate('sender', 'name avatar');
+
+          // Update conversation's last message
+          await Conversation.findByIdAndUpdate(conv._id, {
+            lastMessage: message._id,
+            lastMessageAt: new Date(),
+          });
+
+          const payload = {
+            _id: message._id,
+            conversationId: conv._id,
+            sender: message.sender,
+            recipient: recipientId,
+            content: message.content,
+            messageType,
+            createdAt: message.createdAt,
+            isRead: false,
+            isDelivered: message.isDelivered,
+          };
+
+          // Emit to everyone in the conversation room
+          io.to(`conversation:${conv._id}`).emit('message:new', payload);
+
+          // ─── AI BOT INTERCEPTION ──────────────────────────────────────────────
+          if (recipientId === BOT_ID) {
+            (async () => {
+              try {
+                // Decrypt the user's message for the AI
+                const plainContent = decryptMessage(content, conv._id);
+
+                // Get last few messages for context and decrypt them
+                const rawHistory = await Message.find({ conversationId: conv._id })
+                  .sort({ createdAt: -1 })
+                  .limit(5)
+                  .lean();
+
+                const history = rawHistory
+                  .map((m) => ({
+                    ...m,
+                    content: decryptMessage(m.content, conv._id),
+                  }))
+                  .reverse();
+
+                const aiReply = await supportController.getSupportResponse(plainContent, history);
+
+                // Encrypt the AI's reply for the frontend
+                const encryptedReply = encryptMessage(aiReply, conv._id);
+
+                const botMessage = await Message.create({
+                  conversationId: conv._id,
+                  sender: BOT_ID,
+                  recipient: userId,
+                  content: encryptedReply,
+                  messageType: 'text',
+                  isDelivered: true,
+                  deliveredAt: new Date(),
+                });
+
+                const botPayload = {
+                  _id: botMessage._id,
+                  conversationId: conv._id,
+                  sender: {
+                    _id: BOT_ID,
+                    name: 'KrushiMitra Assistant',
+                    avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png',
+                  },
+                  recipient: userId,
+                  content: botMessage.content,
+                  messageType: 'text',
+                  createdAt: botMessage.createdAt,
+                  isRead: false,
+                  isDelivered: true,
+                };
+
+                io.to(`conversation:${conv._id}`).emit('message:new', botPayload);
+
+                // Update last message in conversation
+                await Conversation.findByIdAndUpdate(conv._id, {
+                  lastMessage: botMessage._id,
+                  lastMessageAt: new Date(),
+                });
+              } catch (aiErr) {
+                logger.error('AI Bot Response Error: ' + aiErr.message);
+              }
+            })();
+          }
+
+          logger.info(`Message sent: ${message._id} in conversation ${conv._id}`);
+        } catch (err) {
+          logger.error('message:send error: ' + err.message);
+          socket.emit('error', { message: 'Failed to send message' });
         }
-
-        // 1. Resolve/Upsert Conversation (prevents duplicates)
-        let conv;
-        if (conversationId) {
-          conv = await Conversation.findById(conversationId);
-        } else if (recipientId) {
-          // Deterministic sorting ensures [A,B] and [B,A] both map to [A,B] 
-          const participants = [userId.toString(), recipientId.toString()].sort();
-          conv = await Conversation.findOneAndUpdate(
-            { participants: { $size: 2, $all: participants } },
-            {
-              $setOnInsert: { participants, lastMessageAt: new Date() }
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-          );
-          conversationId = conv._id;
-        }
-
-        if (!conv) return socket.emit('error', { message: 'Conversation not found and recipientId not provided' });
-
-        const isParticipant = conv.participants.some((p) => p.toString() === userId);
-        if (!isParticipant) return socket.emit('error', { message: 'Unauthorized' });
-
-        const recipientOnline = await isUserOnline(recipientId);
-
-        const message = await Message.create({
-          conversationId: conv._id,
-          sender: userId,
-          recipient: recipientId,
-          content: content.trim(),
-          messageType,
-          isDelivered: recipientOnline,
-          deliveredAt: recipientOnline ? new Date() : null,
-        });
-
-        await message.populate('sender', 'name avatar');
-
-        // Update conversation's last message
-        await Conversation.findByIdAndUpdate(conv._id, {
-          lastMessage: message._id,
-          lastMessageAt: new Date(),
-        });
-
-        const payload = {
-          _id: message._id,
-          conversationId: conv._id,
-          sender: message.sender,
-          recipient: recipientId,
-          content: message.content,
-          messageType,
-          createdAt: message.createdAt,
-          isRead: false,
-          isDelivered: message.isDelivered,
-        };
-
-        // Emit to everyone in the conversation room
-        io.to(`conversation:${conv._id}`).emit('message:new', payload);
-
-        // ─── AI BOT INTERCEPTION ──────────────────────────────────────────────
-        if (recipientId === BOT_ID) {
-          (async () => {
-            try {
-              // Decrypt the user's message for the AI
-              const plainContent = decryptMessage(content, conv._id);
-
-              // Get last few messages for context and decrypt them
-              const rawHistory = await Message.find({ conversationId: conv._id })
-                .sort({ createdAt: -1 })
-                .limit(5)
-                .lean();
-
-              const history = rawHistory.map(m => ({
-                ...m,
-                content: decryptMessage(m.content, conv._id)
-              })).reverse();
-
-              const aiReply = await supportController.getSupportResponse(plainContent, history);
-
-              // Encrypt the AI's reply for the frontend
-              const encryptedReply = encryptMessage(aiReply, conv._id);
-
-              const botMessage = await Message.create({
-                conversationId: conv._id,
-                sender: BOT_ID,
-                recipient: userId,
-                content: encryptedReply,
-                messageType: 'text',
-                isDelivered: true,
-                deliveredAt: new Date(),
-              });
-
-              const botPayload = {
-                _id: botMessage._id,
-                conversationId: conv._id,
-                sender: { _id: BOT_ID, name: 'KrushiMitra Assistant', avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712035.png' },
-                recipient: userId,
-                content: botMessage.content,
-                messageType: 'text',
-                createdAt: botMessage.createdAt,
-                isRead: false,
-                isDelivered: true,
-              };
-
-              io.to(`conversation:${conv._id}`).emit('message:new', botPayload);
-              
-              // Update last message in conversation
-              await Conversation.findByIdAndUpdate(conv._id, {
-                lastMessage: botMessage._id,
-                lastMessageAt: new Date(),
-              });
-            } catch (aiErr) {
-              logger.error('AI Bot Response Error: ' + aiErr.message);
-            }
-          })();
-        }
-
-        logger.info(`Message sent: ${message._id} in conversation ${conv._id}`);
-      } catch (err) {
-        logger.error('message:send error: ' + err.message);
-        socket.emit('error', { message: 'Failed to send message' });
-      }
-    });
+      },
+    );
 
     socket.on('message:read', async ({ messageId, conversationId }) => {
       try {
         const message = await Message.findByIdAndUpdate(
           messageId,
           { isRead: true, readAt: new Date(), isDelivered: true },
-          { new: true }
+          { new: true },
         );
         if (message) {
-          io.to(`conversation:${conversationId}`).emit('message:read', { messageId, readAt: message.readAt });
+          io.to(`conversation:${conversationId}`).emit('message:read', {
+            messageId,
+            readAt: message.readAt,
+          });
         }
       } catch (err) {
         logger.error('message:read error: ' + err.message);
@@ -277,10 +296,13 @@ const initializeSocket = (io) => {
         const message = await Message.findByIdAndUpdate(
           messageId,
           { isDelivered: true, deliveredAt: new Date() },
-          { new: true }
+          { new: true },
         );
         if (message) {
-          io.to(`conversation:${conversationId}`).emit('message:delivered', { messageId, deliveredAt: message.deliveredAt });
+          io.to(`conversation:${conversationId}`).emit('message:delivered', {
+            messageId,
+            deliveredAt: message.deliveredAt,
+          });
         }
       } catch (err) {
         logger.error('message:delivered error: ' + err.message);
@@ -300,14 +322,17 @@ const initializeSocket = (io) => {
     socket.on('presence:get', async ({ userId: targetUserId }) => {
       try {
         const online = await isUserOnline(targetUserId);
-        socket.emit('presence:status', { userId: targetUserId, status: online ? 'online' : 'offline' });
+        socket.emit('presence:status', {
+          userId: targetUserId,
+          status: online ? 'online' : 'offline',
+        });
       } catch (err) {
         logger.error('presence:get error: ' + err.message);
       }
     });
 
     // ─── Call Signaling Events ────────────────────────────────────────────────
-    
+
     socket.on('call:initiate', ({ recipientId, channelName, type, callerName, token }) => {
       logger.info(`[Call] Initiate: ${userId} -> ${recipientId} (${type})`);
       io.to(`user:${recipientId}`).emit('call:incoming', {
@@ -315,7 +340,7 @@ const initializeSocket = (io) => {
         callerName: callerName || socket.userName,
         channelName,
         type,
-        token // Optional, but can be sent if generated upfront
+        token, // Optional, but can be sent if generated upfront
       });
     });
 
@@ -323,7 +348,7 @@ const initializeSocket = (io) => {
       logger.info(`[Call] Accepted: ${userId} (answering ${callerId})`);
       io.to(`user:${callerId}`).emit('call:accepted', {
         recipientId: userId,
-        channelName
+        channelName,
       });
     });
 
@@ -331,7 +356,7 @@ const initializeSocket = (io) => {
       logger.info(`[Call] Rejected: ${userId} (rejecting ${callerId})`);
       io.to(`user:${callerId}`).emit('call:rejected', {
         recipientId: userId,
-        channelName
+        channelName,
       });
     });
 
@@ -339,7 +364,7 @@ const initializeSocket = (io) => {
       logger.info(`[Call] End: ${userId} with ${otherUserId}`);
       io.to(`user:${otherUserId}`).emit('call:ended', {
         endedBy: userId,
-        channelName
+        channelName,
       });
     });
 
@@ -347,7 +372,7 @@ const initializeSocket = (io) => {
       logger.info(`[Call] Hangup: ${userId} (cancelling to ${recipientId})`);
       io.to(`user:${recipientId}`).emit('call:cancelled', {
         callerId: userId,
-        channelName
+        channelName,
       });
     });
 
@@ -359,7 +384,10 @@ const initializeSocket = (io) => {
         if (count <= 0) {
           await redis.hdel(PRESENCE_KEY, userId);
           // Broadcast offline only when all connections across all servers closed
-          io.to(`role:farmer`).to(`role:buyer`).to(`role:logistics`).emit('presence:offline', { userId, timestamp: new Date() });
+          io.to(`role:farmer`)
+            .to(`role:buyer`)
+            .to(`role:logistics`)
+            .emit('presence:offline', { userId, timestamp: new Date() });
         }
       } catch (err) {
         logger.error('Socket disconnect tracking error: ' + err.message);
@@ -378,11 +406,11 @@ const isUserOnline = async (userId) => {
   return parseInt(count) > 0;
 };
 
-// Note: getSocketIds can no longer be local-only. For scaling, 
+// Note: getSocketIds can no longer be local-only. For scaling,
 // use io.to(`user:${userId}`).emit() which works across nodes.
 const getSocketIds = async (userId) => {
   const sockets = await io.in(`user:${userId}`).fetchSockets();
-  return sockets.map(s => s.id);
+  return sockets.map((s) => s.id);
 };
 
 module.exports = { initializeSocket, isUserOnline, getSocketIds };

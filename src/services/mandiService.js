@@ -17,22 +17,30 @@ class MandiService {
           'api-key': API_KEY,
           format: 'json',
           limit,
-          'filters[state]': state, 
+          'filters[state]': state,
         },
         timeout: 15000,
       });
 
       const records = response.data?.records || [];
-      
+
       // Filter out invalid records (e.g. schema mismatches)
-      const validRecords = records.filter(r => {
+      const validRecords = records.filter((r) => {
         const hasCommodity = !!(r.Commodity || r.commodity || r.Crop || r.crop);
-        const hasPrice = !!(r.Modal_Price || r.modal_price || r.Modal_x0020_Price || r.Max_Price || r.Min_Price);
+        const hasPrice = !!(
+          r.Modal_Price ||
+          r.modal_price ||
+          r.Modal_x0020_Price ||
+          r.Max_Price ||
+          r.Min_Price
+        );
         return hasCommodity && hasPrice;
       });
 
       if (validRecords.length === 0 && records.length > 0) {
-        logger.warn(`MandiService: Received ${records.length} records but 0 passed validation for ${state}`);
+        logger.warn(
+          `MandiService: Received ${records.length} records but 0 passed validation for ${state}`,
+        );
         return { success: false, error: 'Source data schema mismatch' };
       }
 
@@ -40,7 +48,7 @@ class MandiService {
         updateOne: {
           filter: {
             commodity: record.Commodity || record.commodity || 'Unknown',
-            market:    record.Market    || record.market    || 'Unknown',
+            market: record.Market || record.market || 'Unknown',
             priceDate: (() => {
               const raw = record.Arrival_Date || record.arrival_date;
               if (!raw) return new Date();
@@ -50,24 +58,30 @@ class MandiService {
           },
           update: {
             $set: {
-              commodity:  record.Commodity  || record.commodity  || '',
-              crop:       record.Commodity  || record.commodity  || '',
-              variety:    record.Variety    || record.variety     || '',
-              market:     record.Market     || record.market      || '',
-              mandi:      record.Market     || record.market      || '',
-              state:      record.State      || record.state       || record.state_name || '',
-              district:   record.District   || record.district    || record.district_name || '',
-              minPrice:   parseFloat(record.Min_x0020_Price   || record.Min_Price   || record.min_price || 0),
-              maxPrice:   parseFloat(record.Max_x0020_Price   || record.Max_Price   || record.max_price || 0),
-              modalPrice: parseFloat(record.Modal_x0020_Price || record.Modal_Price || record.modal_price || 0),
-              unit:       record.Unit || record.unit || 'Quintal',
-              priceDate:  (() => {
+              commodity: record.Commodity || record.commodity || '',
+              crop: record.Commodity || record.commodity || '',
+              variety: record.Variety || record.variety || '',
+              market: record.Market || record.market || '',
+              mandi: record.Market || record.market || '',
+              state: record.State || record.state || record.state_name || '',
+              district: record.District || record.district || record.district_name || '',
+              minPrice: parseFloat(
+                record.Min_x0020_Price || record.Min_Price || record.min_price || 0,
+              ),
+              maxPrice: parseFloat(
+                record.Max_x0020_Price || record.Max_Price || record.max_price || 0,
+              ),
+              modalPrice: parseFloat(
+                record.Modal_x0020_Price || record.Modal_Price || record.modal_price || 0,
+              ),
+              unit: record.Unit || record.unit || 'Quintal',
+              priceDate: (() => {
                 const raw = record.Arrival_Date || record.arrival_date;
                 if (!raw) return new Date();
                 const d = new Date(raw);
                 return isNaN(d.getTime()) ? new Date() : d;
               })(),
-              source:     'AGMARKNET',
+              source: 'AGMARKNET',
             },
           },
           upsert: true,
@@ -172,16 +186,81 @@ class MandiService {
 
   static getMockMandiPrices(commodity) {
     const prices = [
-      { commodity: 'Wheat', market: 'Ahmedabad', state: 'Gujarat', minPrice: 2100, maxPrice: 2300, modalPrice: 2200, unit: 'Quintal' },
-      { commodity: 'Tomato', market: 'Ahmedabad', state: 'Gujarat', minPrice: 1500, maxPrice: 2000, modalPrice: 1800, unit: 'Quintal' },
-      { commodity: 'Cotton', market: 'Rajkot', state: 'Gujarat', minPrice: 6000, maxPrice: 6800, modalPrice: 6500, unit: 'Quintal' },
-      { commodity: 'Onion', market: 'Anand', state: 'Gujarat', minPrice: 2200, maxPrice: 2800, modalPrice: 2500, unit: 'Quintal' },
-      { commodity: 'Rice', market: 'Mehsana', state: 'Gujarat', minPrice: 5000, maxPrice: 5800, modalPrice: 5500, unit: 'Quintal' },
-      { commodity: 'Groundnut', market: 'Junagadh', state: 'Gujarat', minPrice: 8000, maxPrice: 9000, modalPrice: 8500, unit: 'Quintal' },
-      { commodity: 'Potato', market: 'Surat', state: 'Gujarat', minPrice: 1200, maxPrice: 1600, modalPrice: 1400, unit: 'Quintal' },
-      { commodity: 'Cumin', market: 'Unjha', state: 'Gujarat', minPrice: 18000, maxPrice: 22000, modalPrice: 20000, unit: 'Quintal' },
+      {
+        commodity: 'Wheat',
+        market: 'Ahmedabad',
+        state: 'Gujarat',
+        minPrice: 2100,
+        maxPrice: 2300,
+        modalPrice: 2200,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Tomato',
+        market: 'Ahmedabad',
+        state: 'Gujarat',
+        minPrice: 1500,
+        maxPrice: 2000,
+        modalPrice: 1800,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Cotton',
+        market: 'Rajkot',
+        state: 'Gujarat',
+        minPrice: 6000,
+        maxPrice: 6800,
+        modalPrice: 6500,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Onion',
+        market: 'Anand',
+        state: 'Gujarat',
+        minPrice: 2200,
+        maxPrice: 2800,
+        modalPrice: 2500,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Rice',
+        market: 'Mehsana',
+        state: 'Gujarat',
+        minPrice: 5000,
+        maxPrice: 5800,
+        modalPrice: 5500,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Groundnut',
+        market: 'Junagadh',
+        state: 'Gujarat',
+        minPrice: 8000,
+        maxPrice: 9000,
+        modalPrice: 8500,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Potato',
+        market: 'Surat',
+        state: 'Gujarat',
+        minPrice: 1200,
+        maxPrice: 1600,
+        modalPrice: 1400,
+        unit: 'Quintal',
+      },
+      {
+        commodity: 'Cumin',
+        market: 'Unjha',
+        state: 'Gujarat',
+        minPrice: 18000,
+        maxPrice: 22000,
+        modalPrice: 20000,
+        unit: 'Quintal',
+      },
     ];
-    if (commodity) return prices.filter((p) => p.commodity.toLowerCase().includes(commodity.toLowerCase()));
+    if (commodity)
+      return prices.filter((p) => p.commodity.toLowerCase().includes(commodity.toLowerCase()));
     return prices.map((p) => ({ ...p, priceDate: new Date(), source: 'MOCK', isMock: true }));
   }
 }

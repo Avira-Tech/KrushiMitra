@@ -14,9 +14,24 @@ const Truck = require('../models/Truck');
 
 // ─── DASHBOARD ANALYTICS ────────────────────────────────────────────────────────────────────
 const getDashboard = async (req, res) => {
-  const [userStats, cropStats, contractStats, paymentStats, recentUsers, totalContracts, completedContracts, activeDisputes] = await Promise.all([
+  const [
+    userStats,
+    cropStats,
+    contractStats,
+    paymentStats,
+    recentUsers,
+    totalContracts,
+    completedContracts,
+    activeDisputes,
+  ] = await Promise.all([
     User.aggregate([
-      { $group: { _id: '$role', count: { $sum: 1 }, verified: { $sum: { $cond: ['$isVerified', 1, 0] } } } },
+      {
+        $group: {
+          _id: '$role',
+          count: { $sum: 1 },
+          verified: { $sum: { $cond: ['$isVerified', 1, 0] } },
+        },
+      },
     ]),
     Crop.aggregate([
       { $group: { _id: '$status', count: { $sum: 1 }, totalQuantity: { $sum: '$quantity' } } },
@@ -28,21 +43,32 @@ const getDashboard = async (req, res) => {
           count: { $sum: 1 },
           totalValue: { $sum: '$terms.totalAmount' },
           transSold: { $sum: { $cond: [{ $ne: ['$transport.provider', 'none'] }, 1, 0] } },
-          totalTransValue: { $sum: '$transport.estimatedCost' }
-        }
+          totalTransValue: { $sum: '$transport.estimatedCost' },
+        },
       },
     ]),
     Payment.aggregate([
       { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] } } },
-      { $group: { _id: null, totalVolume: { $sum: '$amount' }, totalFees: { $sum: '$platformFee' }, count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: null,
+          totalVolume: { $sum: '$amount' },
+          totalFees: { $sum: '$platformFee' },
+          count: { $sum: 1 },
+        },
+      },
     ]),
-    User.find().sort({ createdAt: -1 }).limit(10).select('name phone role verificationStatus createdAt'),
+    User.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('name phone role verificationStatus createdAt'),
     Contract.countDocuments(),
     Contract.countDocuments({ status: 'completed' }),
     Contract.countDocuments({ status: 'disputed' }),
   ]);
 
-  const formatStats = (arr, key = '_id') => arr.reduce((acc, item) => ({ ...acc, [item[key]]: item }), {});
+  const formatStats = (arr, key = '_id') =>
+    arr.reduce((acc, item) => ({ ...acc, [item[key]]: item }), {});
 
   // Performance Metrics
   const disputeRate = totalContracts > 0 ? (activeDisputes / totalContracts) * 100 : 0;
@@ -61,8 +87,8 @@ const getDashboard = async (req, res) => {
       performance: {
         disputeRate: disputeRate.toFixed(1),
         safetyRate: safetyRate.toFixed(1),
-        growth: "12.5" // Placeholder for now, could be calculated from monthly trends
-      }
+        growth: '12.5', // Placeholder for now, could be calculated from monthly trends
+      },
     },
   });
 };
@@ -77,7 +103,9 @@ const getPendingVerifications = async (req, res) => {
 
   const [users, total] = await Promise.all([
     User.find(query)
-      .select('name phone email role farmerId companyName gstNumber verificationStatus createdAt location')
+      .select(
+        'name phone email role farmerId companyName gstNumber verificationStatus createdAt location',
+      )
       .sort({ createdAt: 1 })
       .skip(skip)
       .limit(limit),
@@ -94,7 +122,10 @@ const verifyUser = async (req, res) => {
     const { action, note } = req.body; // action: 'approve' | 'reject'
 
     if (!['approve', 'reject'].includes(action)) {
-      return sendError(res, { message: 'Invalid action. Use "approve" or "reject".', statusCode: 400 });
+      return sendError(res, {
+        message: 'Invalid action. Use "approve" or "reject".',
+        statusCode: 400,
+      });
     }
 
     const user = await User.findById(userId);
@@ -114,7 +145,7 @@ const verifyUser = async (req, res) => {
     await cache.del(`user:status:${userId}`);
 
     // Notify user
-    NotificationService.notifyAccountVerified(userId, isApproved, note).catch(err => {
+    NotificationService.notifyAccountVerified(userId, isApproved, note).catch((err) => {
       logger.error(`Failed to notify user ${userId} of verification status: ${err.message}`);
     });
 
@@ -148,7 +179,11 @@ const getAllUsers = async (req, res) => {
   }
 
   const [users, total] = await Promise.all([
-    User.find(query).select('-password -otp -refreshToken -governmentId').sort({ createdAt: -1 }).skip(skip).limit(limit),
+    User.find(query)
+      .select('-password -otp -refreshToken -governmentId')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
     User.countDocuments(query),
   ]);
 
@@ -162,7 +197,8 @@ const banUser = async (req, res) => {
 
   const user = await User.findById(userId);
   if (!user) return sendNotFound(res, 'User not found');
-  if (user.role === 'admin') return sendError(res, { message: 'Cannot ban admin', statusCode: 400 });
+  if (user.role === 'admin')
+    return sendError(res, { message: 'Cannot ban admin', statusCode: 400 });
 
   await User.findByIdAndUpdate(userId, {
     isBanned: action === 'ban',
@@ -172,7 +208,9 @@ const banUser = async (req, res) => {
   // Invalidate user cache
   await cache.del(`user:status:${userId}`);
 
-  return sendSuccess(res, { message: `User ${action === 'ban' ? 'banned' : 'unbanned'} successfully` });
+  return sendSuccess(res, {
+    message: `User ${action === 'ban' ? 'banned' : 'unbanned'} successfully`,
+  });
 };
 
 // ─── RESOLVE DISPUTE ───────────────────────────────────────────────────────────────────────
@@ -195,10 +233,20 @@ const resolveDispute = async (req, res) => {
 
   // Handle payment based on resolution
   if (action === 'release_payment') {
-    await Contract.findByIdAndUpdate(contractId, { 'payment.status': 'released', 'payment.releasedAt': new Date() });
-    await NotificationService.notifyPaymentReleased(contract, contract.farmer, contract.terms.netAmount);
+    await Contract.findByIdAndUpdate(contractId, {
+      'payment.status': 'released',
+      'payment.releasedAt': new Date(),
+    });
+    await NotificationService.notifyPaymentReleased(
+      contract,
+      contract.farmer,
+      contract.terms.netAmount,
+    );
   } else if (action === 'refund') {
-    await Contract.findByIdAndUpdate(contractId, { 'payment.status': 'refunded', 'payment.refundedAt': new Date() });
+    await Contract.findByIdAndUpdate(contractId, {
+      'payment.status': 'refunded',
+      'payment.refundedAt': new Date(),
+    });
   }
 
   // Notify both parties
@@ -208,11 +256,14 @@ const resolveDispute = async (req, res) => {
     body: `Dispute on contract #${contract.contractId} has been resolved by admin.`,
     refModel: 'Contract',
     refId: contract._id,
-  }).catch(() => { });
+  }).catch(() => {});
 
   logger.info(`Dispute resolved for contract ${contract.contractId} by admin ${req.user._id}`);
 
-  return sendSuccess(res, { message: 'Dispute resolved successfully', data: { resolution, action } });
+  return sendSuccess(res, {
+    message: 'Dispute resolved successfully',
+    data: { resolution, action },
+  });
 };
 
 // ─── SEND BROADCAST NOTIFICATION ──────────────────────────────────────────────────────────────
@@ -225,7 +276,7 @@ const sendBroadcast = async (req, res) => {
   const users = await User.find(query).select('_id');
   const result = await NotificationService.createBulk(
     users.map((u) => u._id),
-    { type: 'system', title, body, priority }
+    { type: 'system', title, body, priority },
   );
 
   return sendSuccess(res, {
@@ -236,12 +287,18 @@ const sendBroadcast = async (req, res) => {
 
 // ─── GET SYSTEM ACTIVITY ────────────────────────────────────────────────────────────────────
 const getActivity = async (req, res) => {
-  const logs = await AuditLog.find()
-    .populate('admin', 'name')
-    .sort({ createdAt: -1 })
-    .limit(20);
+  const { page, limit, skip } = parsePagination(req.query);
 
-  const formatted = logs.map(log => {
+  const [logs, total] = await Promise.all([
+    AuditLog.find()
+      .populate('admin', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    AuditLog.countDocuments(),
+  ]);
+
+  const formatted = logs.map((log) => {
     let color = '#4A148C';
     let text = `${log.admin?.name || 'Admin'} performed ${log.action} in ${log.module}`;
 
@@ -253,11 +310,11 @@ const getActivity = async (req, res) => {
       id: log._id,
       text,
       time: log.createdAt,
-      color
+      color,
     };
   });
 
-  return sendSuccess(res, { data: formatted });
+  return sendPaginated(res, { data: formatted, page, limit, total });
 };
 
 // ─── GET GEOGRAPHICAL ANALYTICS ──────────────────────────────────────────────────────────────
@@ -270,8 +327,8 @@ const getGeoAnalytics = async (req, res) => {
           from: 'users',
           localField: 'buyer',
           foreignField: '_id',
-          as: 'buyerData'
-        }
+          as: 'buyerData',
+        },
       },
       { $unwind: '$buyerData' },
       {
@@ -280,8 +337,8 @@ const getGeoAnalytics = async (req, res) => {
           totalVolume: { $sum: '$terms.totalAmount' },
           orderCount: { $sum: 1 },
           farmers: { $addToSet: '$farmer' },
-          buyers: { $addToSet: '$buyer' }
-        }
+          buyers: { $addToSet: '$buyer' },
+        },
       },
       {
         $project: {
@@ -290,11 +347,11 @@ const getGeoAnalytics = async (req, res) => {
           orderCount: 1,
           farmerCount: { $size: '$farmers' },
           buyerCount: { $size: '$buyers' },
-          _id: 0
-        }
+          _id: 0,
+        },
       },
       { $sort: { totalVolume: -1 } },
-      { $limit: 15 }
+      { $limit: 15 },
     ]);
 
     return sendSuccess(res, { data: { geoStats } });
@@ -355,7 +412,7 @@ const logAdminAction = async (req, module, action, targetId, details) => {
       targetId,
       details,
       ip: req.ip,
-      userAgent: req.get('User-Agent')
+      userAgent: req.get('User-Agent'),
     });
   } catch (err) {
     logger.error(`Failed to log admin action: ${err.message}`);
@@ -370,7 +427,7 @@ const updateContractTransport = async (req, res) => {
 
     const [contract, transport] = await Promise.all([
       Contract.findById(contractId),
-      require('../models/Transport').findById(transportId)
+      require('../models/Transport').findById(transportId),
     ]);
 
     if (!contract) return sendNotFound(res, 'Contract not found');
@@ -389,9 +446,11 @@ const updateContractTransport = async (req, res) => {
       body: `Delivery for contract #${contract.contractId} has been scheduled with ${transport.name}.`,
       refModel: 'Contract',
       refId: contract._id,
-    }).catch(() => { });
+    }).catch(() => {});
 
-    await logAdminAction(req, 'ContractManagement', 'SetTransport', contractId, { transport: transport.name });
+    await logAdminAction(req, 'ContractManagement', 'SetTransport', contractId, {
+      transport: transport.name,
+    });
 
     return sendSuccess(res, { message: `Transport set to ${transport.name}` });
   } catch (err) {
@@ -409,25 +468,63 @@ const getRevenueAnalytics = async (req, res) => {
 
     const [daily, monthly, yearly, userWise] = await Promise.all([
       Payment.aggregate([
-        { $match: { status: { $in: ['released', 'captured', 'in_escrow'] }, createdAt: { $gte: startOfDay } } },
-        { $group: { _id: null, totalVolume: { $sum: '$amount' }, platformFees: { $sum: '$platformFee' }, gst: { $sum: '$gstAmount' } } }
+        {
+          $match: {
+            status: { $in: ['released', 'captured', 'in_escrow'] },
+            createdAt: { $gte: startOfDay },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalVolume: { $sum: '$amount' },
+            platformFees: { $sum: '$platformFee' },
+            gst: { $sum: '$gstAmount' },
+          },
+        },
       ]),
       Payment.aggregate([
-        { $match: { status: { $in: ['released', 'captured', 'in_escrow'] }, createdAt: { $gte: startOfMonth } } },
-        { $group: { _id: null, totalVolume: { $sum: '$amount' }, platformFees: { $sum: '$platformFee' }, gst: { $sum: '$gstAmount' } } }
+        {
+          $match: {
+            status: { $in: ['released', 'captured', 'in_escrow'] },
+            createdAt: { $gte: startOfMonth },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalVolume: { $sum: '$amount' },
+            platformFees: { $sum: '$platformFee' },
+            gst: { $sum: '$gstAmount' },
+          },
+        },
       ]),
       Payment.aggregate([
-        { $match: { status: { $in: ['released', 'captured', 'in_escrow'] }, createdAt: { $gte: startOfYear } } },
-        { $group: { _id: null, totalVolume: { $sum: '$amount' }, platformFees: { $sum: '$platformFee' }, gst: { $sum: '$gstAmount' } } }
+        {
+          $match: {
+            status: { $in: ['released', 'captured', 'in_escrow'] },
+            createdAt: { $gte: startOfYear },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalVolume: { $sum: '$amount' },
+            platformFees: { $sum: '$platformFee' },
+            gst: { $sum: '$gstAmount' },
+          },
+        },
       ]),
       Payment.aggregate([
-        { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] } } },
+        {
+          $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] } },
+        },
         {
           $group: {
             _id: '$payer',
             totalPaid: { $sum: '$amount' },
-            feesPaid: { $sum: '$platformFee' }
-          }
+            feesPaid: { $sum: '$platformFee' },
+          },
         },
         { $sort: { totalPaid: -1 } },
         { $limit: 10 },
@@ -436,8 +533,8 @@ const getRevenueAnalytics = async (req, res) => {
             from: 'users',
             localField: '_id',
             foreignField: '_id',
-            as: 'userData'
-          }
+            as: 'userData',
+          },
         },
         { $unwind: '$userData' },
         {
@@ -445,22 +542,27 @@ const getRevenueAnalytics = async (req, res) => {
             userName: '$userData.name',
             userPhone: '$userData.phone',
             totalPaid: 1,
-            feesPaid: 1
-          }
-        }
-      ])
+            feesPaid: 1,
+          },
+        },
+      ]),
     ]);
 
     // Monthly Trend for Chart
     const monthlyTrend = await Payment.aggregate([
-      { $match: { status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] }, createdAt: { $gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1)) } } },
+      {
+        $match: {
+          status: { $in: ['released', 'captured', 'in_escrow', 'processing_release'] },
+          createdAt: { $gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1)) },
+        },
+      },
       {
         $group: {
           _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } },
-          revenue: { $sum: '$platformFee' }
-        }
+          revenue: { $sum: '$platformFee' },
+        },
       },
-      { $sort: { '_id.year': 1, '_id.month': 1 } }
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
     ]);
 
     return sendSuccess(res, {
@@ -468,11 +570,11 @@ const getRevenueAnalytics = async (req, res) => {
         summary: {
           daily: daily[0] || { totalVolume: 0, platformFees: 0, gst: 0 },
           monthly: monthly[0] || { totalVolume: 0, platformFees: 0, gst: 0 },
-          yearly: yearly[0] || { totalVolume: 0, platformFees: 0, gst: 0 }
+          yearly: yearly[0] || { totalVolume: 0, platformFees: 0, gst: 0 },
         },
         userWise,
-        monthlyTrend
-      }
+        monthlyTrend,
+      },
     });
   } catch (err) {
     logger.error('getRevenueAnalytics error:', err);
@@ -484,16 +586,22 @@ const getRevenueAnalytics = async (req, res) => {
 const getPayouts = async (req, res) => {
   try {
     const { status } = req.query;
+    const { page, limit, skip } = parsePagination(req.query);
     const query = {};
     if (status) query.status = status;
 
-    const payouts = await Payout.find(query)
-      .populate('farmer', 'name phone bankDetails')
-      .populate('contract', 'terms.cropName terms.totalAmount')
-      .populate('payment', 'amount releasedAt')
-      .sort({ createdAt: -1 });
+    const [payouts, total] = await Promise.all([
+      Payout.find(query)
+        .populate('farmer', 'name phone bankDetails')
+        .populate('contract', 'terms.cropName terms.totalAmount')
+        .populate('payment', 'amount releasedAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Payout.countDocuments(query),
+    ]);
 
-    return sendSuccess(res, { data: { payouts } });
+    return sendPaginated(res, { data: { payouts }, page, limit, total });
   } catch (err) {
     logger.error('getPayouts error:', err);
     return sendError(res, { message: 'Failed to fetch payouts', statusCode: 500 });
@@ -525,7 +633,7 @@ const updatePayoutStatus = async (req, res) => {
       title: 'Withdrawal Updated',
       body: `Your withdrawal request for ₹${payout.amount} has been ${status}.`,
       type: 'payment',
-      data: { payoutId: payout._id.toString() }
+      data: { payoutId: payout._id.toString() },
     });
 
     return sendSuccess(res, { message: `Payout marked as ${status}` });
@@ -569,15 +677,79 @@ const approveTruck = async (req, res) => {
       recipientId: truck.owner,
       title: isApproved ? 'Truck Approved ✅' : 'Truck Rejected ❌',
       body: `Your truck with plate number ${truck.plateNumber} has been ${action}d by admin.`,
-      type: 'system'
+      type: 'system',
     });
 
-    await logAdminAction(req, 'LogisticsManagement', action === 'approve' ? 'ApproveTruck' : 'RejectTruck', truckId);
+    await logAdminAction(
+      req,
+      'LogisticsManagement',
+      action === 'approve' ? 'ApproveTruck' : 'RejectTruck',
+      truckId,
+    );
 
     return sendSuccess(res, { message: `Truck ${action}d successfully` });
   } catch (err) {
     logger.error('approveTruck error:', err);
     return sendError(res, { message: 'Failed to approve truck', statusCode: 500 });
+  }
+};
+
+// ─── BANK DETAILS REQUESTS ─────────────────────────────────────────────────────────────
+const getBankDetailsRequests = async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const query = { 'bankDetailsChangeRequest.status': 'pending' };
+
+  const [users, total] = await Promise.all([
+    User.find(query)
+      .select('name phone role bankDetails bankDetailsChangeRequest')
+      .sort({ 'bankDetailsChangeRequest.requestedAt': 1 })
+      .skip(skip)
+      .limit(limit),
+    User.countDocuments(query),
+  ]);
+
+  return sendPaginated(res, { data: { users }, page, limit, total });
+};
+
+const approveBankDetailsChange = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { action } = req.body; // 'approve' | 'reject'
+
+    if (!['approve', 'reject'].includes(action)) {
+      return sendError(res, {
+        message: 'Invalid action. Use "approve" or "reject".',
+        statusCode: 400,
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return sendNotFound(res, 'User not found');
+
+    const status = action === 'approve' ? 'approved' : 'rejected';
+    const update = { 'bankDetailsChangeRequest.status': status };
+
+    // If approved, unlock the bank details by clearing them
+    if (status === 'approved') {
+      update.bankDetails = {};
+    }
+
+    await User.findByIdAndUpdate(userId, update);
+    await cache.del(`user:status:${userId}`);
+
+    await NotificationService.create({
+      recipientId: userId,
+      title: 'Bank Details Update',
+      body: `Your request to change bank details has been ${status}.`,
+      type: 'system',
+    });
+
+    await logAdminAction(req, 'UserManagement', 'BankDetailsRequest', userId, { status });
+
+    return sendSuccess(res, { message: `Request ${status} successfully` });
+  } catch (err) {
+    logger.error('approveBankDetailsChange error:', err);
+    return sendError(res, { message: 'Failed to update request', statusCode: 500 });
   }
 };
 
@@ -599,6 +771,7 @@ module.exports = {
   getPayouts,
   updatePayoutStatus,
   getPendingTrucks,
-  approveTruck
+  approveTruck,
+  getBankDetailsRequests,
+  approveBankDetailsChange,
 };
-

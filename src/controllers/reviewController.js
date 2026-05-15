@@ -3,7 +3,13 @@ const Review = require('../models/Review');
 const User = require('../models/User');
 const Contract = require('../models/Contract');
 const { parsePagination } = require('../utils/helpers');
-const { sendSuccess, sendCreated, sendError, sendNotFound, sendPaginated } = require('../utils/apiResponse');
+const {
+  sendSuccess,
+  sendCreated,
+  sendError,
+  sendNotFound,
+  sendPaginated,
+} = require('../utils/apiResponse');
 
 const createReview = async (req, res) => {
   const { contractId, revieweeId, rating, categories, comment } = req.body;
@@ -30,10 +36,10 @@ const createReview = async (req, res) => {
 
   // Update reviewee's rating atomically using $inc
   await User.findByIdAndUpdate(revieweeId, {
-    $inc: { 
-      'rating.total': rating, 
-      'rating.count': 1 
-    }
+    $inc: {
+      'rating.total': rating,
+      'rating.count': 1,
+    },
   });
 
   // Re-calculate average in a separate step or on read
@@ -67,7 +73,9 @@ const getUserReviews = async (req, res) => {
 
   return sendPaginated(res, {
     data: { reviews, stats: stats[0] || { avgRating: 0, count: 0 } },
-    page, limit, total,
+    page,
+    limit,
+    total,
   });
 };
 

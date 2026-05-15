@@ -1,7 +1,7 @@
 'use strict';
 /**
  * socketService.js
- * 
+ *
  * Centralized service for emitting socket events from outside the socket handler (e.g. controllers).
  * Eliminates reliance on global.io.
  */
@@ -46,5 +46,7 @@ module.exports = {
   emitToUser,
   emitToRoom,
   broadcast,
-  get io() { return io; }
+  get io() {
+    return io;
+  },
 };

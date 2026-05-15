@@ -41,7 +41,7 @@ const reviewSchema = new mongoose.Schema(
     helpfulCount: { type: Number, default: 0 },
     reportCount: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 reviewSchema.index({ reviewee: 1, createdAt: -1 });

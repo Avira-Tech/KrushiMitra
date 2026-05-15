@@ -2,23 +2,39 @@ const express = require('express');
 const router = express.Router();
 const { protect, restrictTo } = require('../middlewares/auth');
 const {
-  getDashboard, getPendingVerifications, verifyUser,
-  getAllUsers, banUser, resolveDispute, sendBroadcast,
-  getActivity, getDisputes, getGeoAnalytics, getAuditLogs,
+  getDashboard,
+  getPendingVerifications,
+  verifyUser,
+  getAllUsers,
+  banUser,
+  resolveDispute,
+  sendBroadcast,
+  getActivity,
+  getDisputes,
+  getGeoAnalytics,
+  getAuditLogs,
   updateContractTransport,
   getRevenueAnalytics,
   getPayouts,
   updatePayoutStatus,
   getPendingTrucks,
-  approveTruck
+  approveTruck,
+  getBankDetailsRequests,
+  approveBankDetailsChange,
 } = require('../controllers/adminController');
 const { getSettings, updateSetting } = require('../controllers/settingController');
 const {
-  upsertScheme, deleteScheme,
-  upsertArticle, deleteArticle
+  upsertScheme,
+  deleteScheme,
+  upsertArticle,
+  deleteArticle,
 } = require('../controllers/cmsController');
 const {
-  getAllTransports, getTransport, createTransport, updateTransport, deleteTransport
+  getAllTransports,
+  getTransport,
+  createTransport,
+  updateTransport,
+  deleteTransport,
 } = require('../controllers/transportController');
 
 router.use(protect, restrictTo('admin'));
@@ -46,6 +62,8 @@ router.delete('/cms/articles/:id', deleteArticle);
 router.get('/verifications', getPendingVerifications);
 router.patch('/users/:userId/verify', verifyUser);
 router.patch('/users/:userId/ban', banUser);
+router.get('/users/bank-requests', getBankDetailsRequests);
+router.patch('/users/:userId/bank-requests', approveBankDetailsChange);
 router.patch('/contracts/:contractId/dispute/resolve', resolveDispute);
 router.patch('/contracts/:contractId/transport', updateContractTransport);
 

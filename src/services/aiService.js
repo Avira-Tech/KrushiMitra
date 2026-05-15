@@ -16,7 +16,9 @@ class AIService {
 
       // Apply seasonality adjustment
       const seasonalMultiplier = this.getSeasonalMultiplier(cropName);
-      const adjustedPrice = parseFloat((recommendation.recommendedPrice * seasonalMultiplier).toFixed(2));
+      const adjustedPrice = parseFloat(
+        (recommendation.recommendedPrice * seasonalMultiplier).toFixed(2),
+      );
 
       return {
         success: true,
@@ -66,10 +68,26 @@ class AIService {
         grade,
         confidence: parseFloat(confidence.toFixed(2)),
         details: {
-          color: grade === 'A' ? 'Uniform, vibrant' : grade === 'B' ? 'Mostly uniform' : 'Some discoloration',
-          texture: grade === 'A' ? 'Smooth, intact' : grade === 'B' ? 'Minor blemishes' : 'Visible defects',
-          size: grade === 'A' ? 'Consistent sizing' : grade === 'B' ? 'Slight variation' : 'Inconsistent',
-          foreignMatter: grade === 'A' ? 'None detected' : grade === 'B' ? 'Minimal (<2%)' : 'Present (>2%)',
+          color:
+            grade === 'A'
+              ? 'Uniform, vibrant'
+              : grade === 'B'
+                ? 'Mostly uniform'
+                : 'Some discoloration',
+          texture:
+            grade === 'A'
+              ? 'Smooth, intact'
+              : grade === 'B'
+                ? 'Minor blemishes'
+                : 'Visible defects',
+          size:
+            grade === 'A'
+              ? 'Consistent sizing'
+              : grade === 'B'
+                ? 'Slight variation'
+                : 'Inconsistent',
+          foreignMatter:
+            grade === 'A' ? 'None detected' : grade === 'B' ? 'Minimal (<2%)' : 'Present (>2%)',
           moistureEstimate: grade === 'A' ? '12-14%' : grade === 'B' ? '14-16%' : '>16%',
         },
         recommendations: this.getQualityRecommendations(grade, cropName),
@@ -104,9 +122,10 @@ class AIService {
       ...data,
       nearbyBuyers: Math.floor(10 + Math.random() * 40),
       averageWaitTime: `${Math.floor(2 + Math.random() * 10)} days`,
-      recommendation: data.demand === 'High' || data.demand === 'Very High'
-        ? 'Good time to list. High buyer demand in your area.'
-        : 'Moderate demand. Consider competitive pricing.',
+      recommendation:
+        data.demand === 'High' || data.demand === 'Very High'
+          ? 'Good time to list. High buyer demand in your area.'
+          : 'Moderate demand. Consider competitive pricing.',
     };
   }
 
@@ -137,8 +156,16 @@ class AIService {
 
   static getQualityRecommendations(grade, cropName) {
     const recs = {
-      A: ['Store in cool, dry place to maintain premium grade', 'List immediately for best price', 'Target export/premium buyers'],
-      B: ['Proper drying can improve grade', 'Competitive pricing recommended', 'Suitable for bulk buyers'],
+      A: [
+        'Store in cool, dry place to maintain premium grade',
+        'List immediately for best price',
+        'Target export/premium buyers',
+      ],
+      B: [
+        'Proper drying can improve grade',
+        'Competitive pricing recommended',
+        'Suitable for bulk buyers',
+      ],
       C: ['Consider processing/value addition', 'Price competitively', 'Target local markets'],
     };
     return recs[grade] || recs.B;
@@ -146,4 +173,3 @@ class AIService {
 }
 
 module.exports = AIService;
-

@@ -10,19 +10,21 @@ class BlackBuckService {
       // Base rate for heavy trucks is higher, but rate per km might be lower for long distance
       const baseFare = 2000;
       const distanceCharge = distance * 15; // ₹15 per km
-      const weightCharge = weight * 1.5;   // ₹1.5 per kg
-      
+      const weightCharge = weight * 1.5; // ₹1.5 per kg
+
       const totalFare = baseFare + distanceCharge + weightCharge;
 
       return {
         success: true,
         provider: 'blackbuck',
-        vehicles: [{
-          type: 'Full Truck (10 Ton)',
-          fare: totalFare,
-          eta: { pickup: 120, drop: Math.round(distance * 2) + 120 }, // ETA in minutes
-        }],
-        isMock: true
+        vehicles: [
+          {
+            type: 'Full Truck (10 Ton)',
+            fare: totalFare,
+            eta: { pickup: 120, drop: Math.round(distance * 2) + 120 }, // ETA in minutes
+          },
+        ],
+        isMock: true,
       };
     } catch (error) {
       logger.error('BlackBuckService.getQuote error:', error.message);
@@ -37,7 +39,7 @@ class BlackBuckService {
     try {
       const orderId = `BB-${contract._id}-${Date.now()}`;
       logger.info(`BlackBuck order created: ${orderId} for distance ${distance}km`);
-      
+
       return {
         success: true,
         orderId,

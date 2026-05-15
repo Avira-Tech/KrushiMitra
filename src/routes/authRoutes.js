@@ -4,14 +4,35 @@ const { protect } = require('../middlewares/auth');
 const { authLimiter, otpLimiter, checkLimiter } = require('../middlewares/rateLimiter');
 const { validate } = require('../middlewares/validate');
 const {
-  sendOtpSchema, verifyOtpSchema, registerSchema,
-  googleAuthSchema, refreshTokenSchema, updateProfileSchema,
+  sendOtpSchema,
+  verifyOtpSchema,
+  registerSchema,
+  googleAuthSchema,
+  refreshTokenSchema,
+  updateProfileSchema,
 } = require('../validators/authValidators');
 const {
-  checkUser, sendOtp, sendEmailOtp, verifyOtp, verifyEmailOtp, register, googleAuth,
-  refreshToken, logout, getProfile, updateProfile,
-  getBankDetails, updateBankDetails, checkAvailability,
-  verifyAadhaar, verifyGST, verifyBankDetails, initiateAadhaarVerification, completeAadhaarVerification, verifyPin
+  checkUser,
+  sendOtp,
+  sendEmailOtp,
+  verifyOtp,
+  verifyEmailOtp,
+  register,
+  googleAuth,
+  refreshToken,
+  logout,
+  getProfile,
+  updateProfile,
+  getBankDetails,
+  updateBankDetails,
+  requestBankDetailsChange,
+  checkAvailability,
+  verifyAadhaar,
+  verifyGST,
+  verifyBankDetails,
+  initiateAadhaarVerification,
+  completeAadhaarVerification,
+  verifyPin,
 } = require('../controllers/authController');
 const { uploadSingle } = require('../middlewares/upload');
 
@@ -94,6 +115,7 @@ router.put('/profile', uploadSingle('avatar'), validate(updateProfileSchema), up
 // Bank details
 router.get('/bank-details', getBankDetails);
 router.put('/bank-details', updateBankDetails);
+router.post('/bank-details/request-change', requestBankDetailsChange);
 /**
  * @swagger
  * /auth/verify-pin:

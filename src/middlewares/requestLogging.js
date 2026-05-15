@@ -108,7 +108,7 @@ const sanitizeLogData = (data) => {
     'privateKey',
   ];
 
-  sensitiveFields.forEach(field => {
+  sensitiveFields.forEach((field) => {
     if (field in sanitized) {
       sanitized[field] = '[REDACTED]';
     }

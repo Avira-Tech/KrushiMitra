@@ -11,7 +11,9 @@ jest.mock('../config/sms', () => ({
 
 describe('Auth API', () => {
   beforeAll(async () => {
-    await mongoose.connect(process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/krushimitra_test');
+    await mongoose.connect(
+      process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/krushimitra_test',
+    );
   });
 
   afterAll(async () => {
@@ -52,7 +54,7 @@ describe('Auth API', () => {
           'otp.expiresAt': new Date(Date.now() + 600000),
           'otp.attempts': 1,
         },
-        { upsert: true }
+        { upsert: true },
       );
     });
 

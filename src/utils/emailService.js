@@ -15,17 +15,21 @@ if (dns.setDefaultResultOrder) {
 const sendEmailViaAPI = async (options) => {
   const apiKey = process.env.BREVO_API_KEY;
   try {
-    const response = await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'KrushiMitra', email: process.env.SMTP_USER },
-      to: [{ email: options.to }],
-      subject: options.subject,
-      htmlContent: options.html || options.text,
-    }, {
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json',
-      }
-    });
+    const response = await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        sender: { name: 'KrushiMitra', email: process.env.SMTP_USER },
+        to: [{ email: options.to }],
+        subject: options.subject,
+        htmlContent: options.html || options.text,
+      },
+      {
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
     logger.info(`📧 Email sent via Brevo API: ${response.data.messageId}`);
     return response.data;
   } catch (error) {

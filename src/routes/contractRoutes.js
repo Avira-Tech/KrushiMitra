@@ -1,6 +1,6 @@
 'use strict';
-const express  = require('express');
-const router   = express.Router();
+const express = require('express');
+const router = express.Router();
 const { protect, restrictTo } = require('../middlewares/auth');
 const {
   getMyContracts,
@@ -21,19 +21,19 @@ const {
 
 router.use(protect);
 
-router.get('/',                                   getMyContracts);
-router.get('/:id',                                getContractById);
-router.post('/:id/like',                          toggleLikeContract);
-router.post('/:id/email',                         sendContractEmail);
-router.post('/:id/transport/quote',               getTransportQuote);
+router.get('/', getMyContracts);
+router.get('/:id', getContractById);
+router.post('/:id/like', toggleLikeContract);
+router.post('/:id/email', sendContractEmail);
+router.post('/:id/transport/quote', getTransportQuote);
 router.post('/:id/transport/request', restrictTo('buyer'), requestTransport);
 router.post('/:id/transport/respond', restrictTo('logistics'), respondTransport);
-router.post('/:id/payment/choose',  restrictTo('buyer'), choosePaymentType);
+router.post('/:id/payment/choose', restrictTo('buyer'), choosePaymentType);
 router.post('/:id/payment/initiate', restrictTo('buyer'), initiatePayment);
-router.post('/:id/payment/confirm',  restrictTo('buyer'), confirmPayment);
-router.post('/:id/payment/release',               releasePayment);
-router.post('/:id/dispute',                       raiseDispute);
-router.get('/:id/delivery/track',                 trackDelivery);
+router.post('/:id/payment/confirm', restrictTo('buyer'), confirmPayment);
+router.post('/:id/payment/release', releasePayment);
+router.post('/:id/dispute', raiseDispute);
+router.get('/:id/delivery/track', trackDelivery);
 router.patch('/:id/delivery/location', restrictTo('buyer'), updateDeliveryLocation);
 
 module.exports = router;

@@ -17,7 +17,10 @@ const userSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
       trim: true,
-      match: [/^[a-zA-Z0-9_]{3,30}$/, 'Username must be 3-30 alphanumeric characters or underscores'],
+      match: [
+        /^[a-zA-Z0-9_]{3,30}$/,
+        'Username must be 3-30 alphanumeric characters or underscores',
+      ],
     },
     phone: {
       type: String,
@@ -31,14 +34,14 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format'],
-      default: undefined,    // must be explicitly undefined so sparse index works
+      default: undefined, // must be explicitly undefined so sparse index works
     },
     // Password is optional — OTP auth does not use it. Only set if the user
     // explicitly enables password login in the future.
     password: {
       type: String,
       minlength: [8, 'Password must be at least 8 characters'],
-      select: false,         // never returned in queries unless explicitly projected
+      select: false, // never returned in queries unless explicitly projected
       default: undefined,
     },
 
@@ -81,7 +84,7 @@ const userSchema = new mongoose.Schema(
     // ─── Verification ────────────────────────────────────────────────────────
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
-    isVerified: { type: Boolean, default: false },  // admin-verified KYC
+    isVerified: { type: Boolean, default: false }, // admin-verified KYC
     verificationStatus: {
       type: String,
       enum: ['pending', 'under_review', 'approved', 'rejected'],
@@ -132,7 +135,7 @@ const userSchema = new mongoose.Schema(
     securityStatus: {
       pinWrongAttempts: { type: Number, default: 0 },
       blockedUntil: { type: Date },
-      blockReason: { type: String }
+      blockReason: { type: String },
     },
     emailOtp: {
       code: { type: String },
@@ -155,6 +158,10 @@ const userSchema = new mongoose.Schema(
       accountHolderName: { type: String, trim: true },
       upiId: { type: String, trim: true },
     },
+    bankDetailsChangeRequest: {
+      status: { type: String, enum: ['none', 'pending', 'approved', 'rejected'], default: 'none' },
+      requestedAt: { type: Date },
+    },
 
     // ─── Metadata ─────────────────────────────────────────────────────────────
     metadata: {
@@ -167,7 +174,7 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 // Explicit unique indexes for sparse fields

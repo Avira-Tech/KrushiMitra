@@ -150,7 +150,7 @@ const completePayout = async (payoutId, metadata = {}) => {
         completedAt: new Date(),
         ...metadata,
       },
-      { new: true }
+      { new: true },
     ).populate('farmer');
 
     if (!payout) throw new Error('Payout not found');
@@ -187,7 +187,7 @@ const failPayout = async (payoutId, failureReason) => {
         failedAt: new Date(),
         failureReason: failureReason || 'Unknown error',
       },
-      { new: true }
+      { new: true },
     ).populate('farmer');
 
     if (!payout) throw new Error('Payout not found');

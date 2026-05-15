@@ -14,12 +14,29 @@ const notificationSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: [
-        'new_offer', 'offer_accepted', 'offer_rejected', 'offer_countered',
-        'contract_created', 'contract_signed', 'payment_received', 'payment_released',
-        'delivery_scheduled', 'delivery_update', 'delivery_completed',
-        'crop_listed', 'crop_sold', 'new_message',
-        'account_verified', 'account_rejected', 'system', 'dispute_raised', 'dispute_resolved',
-        'transport_request', 'transport_confirmed', 'transport_rejected', 'otp_verification',
+        'new_offer',
+        'offer_accepted',
+        'offer_rejected',
+        'offer_countered',
+        'contract_created',
+        'contract_signed',
+        'payment_received',
+        'payment_released',
+        'delivery_scheduled',
+        'delivery_update',
+        'delivery_completed',
+        'crop_listed',
+        'crop_sold',
+        'new_message',
+        'account_verified',
+        'account_rejected',
+        'system',
+        'dispute_raised',
+        'dispute_resolved',
+        'transport_request',
+        'transport_confirmed',
+        'transport_rejected',
+        'otp_verification',
       ],
       required: true,
     },
@@ -64,7 +81,7 @@ const notificationSchema = new mongoose.Schema(
       default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 notificationSchema.index({ recipient: 1, isRead: 1 });
