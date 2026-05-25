@@ -15,7 +15,11 @@ const SystemSetting = require('../models/SystemSetting');
 const checkMaintenance = async (req, res, next) => {
   try {
     // Health check and specific routes should always be accessible
-    if (req.path === '/health' || req.path.includes('/admin/settings')) return next();
+    if (
+      req.path === '/health' || 
+      req.path.includes('/admin/settings') || 
+      req.path.includes('/auth')
+    ) return next();
 
     const settings = await SystemSetting.find({
       key: { $in: ['maintenance_mode', 'maintenance_until', 'maintenance_message'] },

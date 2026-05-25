@@ -22,6 +22,25 @@ const NotificationService = require('../services/notificationService');
 const { uploadBufferToCloudinary } = require('../config/cloudinary');
 const logger = require('../utils/logger');
 const verificationService = require('../services/verificationService');
+const SystemSetting = require('../models/SystemSetting');
+
+// Helper to check maintenance during auth
+const isAppInMaintenance = async () => {
+  const settings = await SystemSetting.find({
+    key: { $in: ['maintenance_mode', 'maintenance_until', 'maintenance_message'] },
+  }).lean();
+  const maintenance = settings.find((s) => s.key === 'maintenance_mode');
+  if (maintenance?.value === true) {
+    const until = settings.find((s) => s.key === 'maintenance_until');
+    const message = settings.find((s) => s.key === 'maintenance_message');
+    return {
+      active: true,
+      until: until?.value,
+      message: message?.value || 'Platform is undergoing maintenance.',
+    };
+  }
+  return { active: false };
+};
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────────────────
 
@@ -131,6 +150,17 @@ const checkUser = async (req, res) => {
     ],
   });
 
+  const maintenance = await isAppInMaintenance();
+  if (maintenance.active && user?.role !== 'admin') {
+    return res.status(503).json({
+      success: false,
+      error: maintenance.message,
+      isMaintenance: true,
+      maintenanceUntil: maintenance.until,
+      maintenanceMessage: maintenance.message,
+    });
+  }
+
   return sendSuccess(res, {
     data: {
       exists: !!(user && user.name), // Registered if name exists
@@ -178,6 +208,18 @@ const sendOtp = async (req, res) => {
       { phone: `0${normalizedPhone}` },
     ],
   }).select('+otp +securityStatus');
+  
+  const maintenance = await isAppInMaintenance();
+  if (maintenance.active && user?.role !== 'admin') {
+    return res.status(503).json({
+      success: false,
+      error: maintenance.message,
+      isMaintenance: true,
+      maintenanceUntil: maintenance.until,
+      maintenanceMessage: maintenance.message,
+    });
+  }
+
   const isNewUser = !user;
   // 1. Check Security Block (e.g. 12hr block from PIN failures)
   if (user?.securityStatus?.blockedUntil && user.securityStatus.blockedUntil > new Date()) {
@@ -393,6 +435,17 @@ const verifyOtp = async (req, res) => {
 
   const user = result.user;
 
+  const maintenance = await isAppInMaintenance();
+  if (maintenance.active && user?.role !== 'admin') {
+    return res.status(503).json({
+      success: false,
+      error: maintenance.message,
+      isMaintenance: true,
+      maintenanceUntil: maintenance.until,
+      maintenanceMessage: maintenance.message,
+    });
+  }
+
   // Success: Clear OTP data and reset wrong attempts
   const update = {
     $unset: { 'otp.code': 1, 'otp.expiresAt': 1, 'otp.lockedUntil': 1 },
@@ -472,6 +525,17 @@ const register = async (req, res) => {
     return sendError(res, {
       message: 'Phone number already registered. Please login.',
       statusCode: 409,
+    });
+  }
+
+  const maintenance = await isAppInMaintenance();
+  if (maintenance.active && tempUser?.role !== 'admin') {
+    return res.status(503).json({
+      success: false,
+      error: maintenance.message,
+      isMaintenance: true,
+      maintenanceUntil: maintenance.until,
+      maintenanceMessage: maintenance.message,
     });
   }
 
@@ -600,6 +664,17 @@ const googleAuth = async (req, res) => {
     let user = await User.findOne({ $or: [{ googleId: googleIdStr }, { email: emailStr }] }).select(
       '+securityStatus',
     );
+
+    const maintenance = await isAppInMaintenance();
+    if (maintenance.active && user?.role !== 'admin') {
+      return res.status(503).json({
+        success: false,
+        error: maintenance.message,
+        isMaintenance: true,
+        maintenanceUntil: maintenance.until,
+        maintenanceMessage: maintenance.message,
+      });
+    }
 
     // Removed security block check to allow login/navigation while restricted
 
