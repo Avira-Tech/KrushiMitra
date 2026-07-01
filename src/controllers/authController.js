@@ -42,6 +42,30 @@ const isAppInMaintenance = async () => {
   return { active: false };
 };
 
+const handleMaintenance = async (user, res) => {
+  const maintenance = await isAppInMaintenance();
+  if (maintenance.active && user?.role !== 'admin') {
+    res.status(503).json({
+      success: false,
+      error: maintenance.message,
+      isMaintenance: true,
+      maintenanceUntil: maintenance.until,
+      maintenanceMessage: maintenance.message,
+    });
+    return true;
+  }
+  return false;
+};
+
+const buildPhoneQuery = (phone) => ({
+  $or: [
+    { phone },
+    { phone: `+91${phone}` },
+    { phone: `91${phone}` },
+    { phone: `0${phone}` },
+  ],
+});
+
 // ─── HELPERS ────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -65,14 +89,7 @@ const verifyOtpHelper = async (phone, otp) => {
     };
   }
 
-  const user = await User.findOne({
-    $or: [
-      { phone: normalizedPhone },
-      { phone: `+91${normalizedPhone}` },
-      { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` },
-    ],
-  }).select('+otp +refreshToken +securityStatus');
+  const user = await User.findOne(buildPhoneQuery(normalizedPhone)).select('+otp +refreshToken +securityStatus');
   if (!user) return { success: false, error: 'User not found', status: 401 };
 
   // Check DB level block (e.g. 12hr block from PIN failures)
@@ -141,25 +158,9 @@ const checkUser = async (req, res) => {
   }
 
   // Query multiple formats to catch legacy or variably formatted numbers
-  const user = await User.findOne({
-    $or: [
-      { phone: normalizedPhone },
-      { phone: `+91${normalizedPhone}` },
-      { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` },
-    ],
-  });
+  const user = await User.findOne(buildPhoneQuery(normalizedPhone));
 
-  const maintenance = await isAppInMaintenance();
-  if (maintenance.active && user?.role !== 'admin') {
-    return res.status(503).json({
-      success: false,
-      error: maintenance.message,
-      isMaintenance: true,
-      maintenanceUntil: maintenance.until,
-      maintenanceMessage: maintenance.message,
-    });
-  }
+  if (await handleMaintenance(user, res)) return;
 
   return sendSuccess(res, {
     data: {
@@ -200,25 +201,9 @@ const sendOtp = async (req, res) => {
     ]);
   }
 
-  let user = await User.findOne({
-    $or: [
-      { phone: normalizedPhone },
-      { phone: `+91${normalizedPhone}` },
-      { phone: `91${normalizedPhone}` },
-      { phone: `0${normalizedPhone}` },
-    ],
-  }).select('+otp +securityStatus');
+  let user = await User.findOne(buildPhoneQuery(normalizedPhone)).select('+otp +securityStatus');
   
-  const maintenance = await isAppInMaintenance();
-  if (maintenance.active && user?.role !== 'admin') {
-    return res.status(503).json({
-      success: false,
-      error: maintenance.message,
-      isMaintenance: true,
-      maintenanceUntil: maintenance.until,
-      maintenanceMessage: maintenance.message,
-    });
-  }
+  if (await handleMaintenance(user, res)) return;
 
   const isNewUser = !user;
   // 1. Check Security Block (e.g. 12hr block from PIN failures)
@@ -435,16 +420,7 @@ const verifyOtp = async (req, res) => {
 
   const user = result.user;
 
-  const maintenance = await isAppInMaintenance();
-  if (maintenance.active && user?.role !== 'admin') {
-    return res.status(503).json({
-      success: false,
-      error: maintenance.message,
-      isMaintenance: true,
-      maintenanceUntil: maintenance.until,
-      maintenanceMessage: maintenance.message,
-    });
-  }
+  if (await handleMaintenance(user, res)) return;
 
   // Success: Clear OTP data and reset wrong attempts
   const update = {
@@ -528,16 +504,7 @@ const register = async (req, res) => {
     });
   }
 
-  const maintenance = await isAppInMaintenance();
-  if (maintenance.active && tempUser?.role !== 'admin') {
-    return res.status(503).json({
-      success: false,
-      error: maintenance.message,
-      isMaintenance: true,
-      maintenanceUntil: maintenance.until,
-      maintenanceMessage: maintenance.message,
-    });
-  }
+  if (await handleMaintenance(tempUser, res)) return;
 
   // Check email uniqueness
   if (email) {
@@ -665,16 +632,7 @@ const googleAuth = async (req, res) => {
       '+securityStatus',
     );
 
-    const maintenance = await isAppInMaintenance();
-    if (maintenance.active && user?.role !== 'admin') {
-      return res.status(503).json({
-        success: false,
-        error: maintenance.message,
-        isMaintenance: true,
-        maintenanceUntil: maintenance.until,
-        maintenanceMessage: maintenance.message,
-      });
-    }
+    if (await handleMaintenance(user, res)) return;
 
     // Removed security block check to allow login/navigation while restricted
 
