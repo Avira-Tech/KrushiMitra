@@ -51,6 +51,9 @@ const payoutRoutes = require('./src/routes/payoutRoutes');
 const logisticsRoutes = require('./src/routes/logisticsRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const paymentPageRoute = require('./src/routes/paymentPage');
+const expenseRoutes = require('./src/routes/expenseRoutes');
+const priceAlertRoutes = require('./src/routes/priceAlertRoutes');
+const communityRoutes = require('./src/routes/communityRoutes');
 
 const app = express();
 
@@ -177,6 +180,7 @@ app.get('/health', async (req, res) => {
     const statusCode = health.status === 'healthy' ? 200 : 503;
     return res.status(statusCode).json({
       success: health.status === 'healthy',
+      message: 'KrushiMitra Service Health',
       ...health,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
@@ -214,6 +218,9 @@ app.use(`${API_PREFIX}/reviews`, reviewRoutes);
 app.use(`${API_PREFIX}/cms`, cmsRoutes);
 app.use(`${API_PREFIX}/payouts`, payoutRoutes);
 app.use(`${API_PREFIX}/logistics`, logisticsRoutes);
+app.use(`${API_PREFIX}/expenses`, expenseRoutes);
+app.use(`${API_PREFIX}/price-alerts`, priceAlertRoutes);
+app.use(`${API_PREFIX}/community`, communityRoutes);
 app.use(`${API_PREFIX}/`, paymentPageRoute);
 
 // ─── API index ────────────────────────────────────────────────────────────────

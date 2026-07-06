@@ -29,11 +29,7 @@ const validate = (schema) => {
           }));
 
           logger.warn('Validation error:', errors);
-          return res.status(400).json({
-            success: false,
-            message: 'Validation failed',
-            errors,
-          });
+          return sendValidationError(res, errors);
         }
 
         if (req.method === 'GET') {
@@ -58,11 +54,7 @@ const validate = (schema) => {
           }));
 
           logger.warn('Validation error:', messages);
-          return res.status(400).json({
-            success: false,
-            message: 'Validation failed',
-            errors: messages,
-          });
+          return sendValidationError(res, messages);
         }
 
         return next();

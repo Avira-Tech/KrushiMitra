@@ -150,8 +150,18 @@ const initiateAadhaarOTP = async (aadhaarNumber, phoneNumber) => {
     const otp = '123456'; // Keep it simple for dev, or use generateOTP()
 
     if (phoneNumber) {
-      await sendOTP(phoneNumber, otp);
-      logger.info(`Aadhaar Simulation OTP sent to ${phoneNumber}`);
+      // Normalize to E.164 format with +91 if it doesn't already start with '+'
+      const cleaned = phoneNumber.replace(/\D/g, '');
+      let formattedPhone = phoneNumber;
+      if (!phoneNumber.startsWith('+')) {
+        if (cleaned.startsWith('91') && cleaned.length === 12) {
+          formattedPhone = `+${cleaned}`;
+        } else {
+          formattedPhone = `+91${cleaned.slice(-10)}`;
+        }
+      }
+      await sendOTP(formattedPhone, otp);
+      logger.info(`Aadhaar Simulation OTP sent to ${formattedPhone}`);
     }
 
     return {

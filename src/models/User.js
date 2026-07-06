@@ -169,6 +169,24 @@ const userSchema = new mongoose.Schema(
       loginCount: { type: Number, default: 0 },
       ipAddresses: [String],
     },
+
+    // ─── Favourites (Buyers save favourite Farmers) ───────────────────────────
+    favouriteFarmers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+
+    // ─── KYC Extended Fields ──────────────────────────────────────────────────
+    aadhaarVerified: { type: Boolean, default: false },
+    gstVerified: { type: Boolean, default: false },
+    kycDocuments: [
+      {
+        type: { type: String, enum: ['aadhaar', 'pan', 'gst', 'bank', 'land'] },
+        url: { type: String },
+        status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+        submittedAt: { type: Date, default: Date.now },
+      },
+    ],
+
+    // ─── Escrow & Earnings ────────────────────────────────────────────────────
+    escrowBalance: { type: Number, default: 0 },
   },
   {
     timestamps: true,

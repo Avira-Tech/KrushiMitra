@@ -960,6 +960,11 @@ const initiateAadhaarVerification = async (req, res) => {
   try {
     // If phone not in body, try to get from logged in user
     const targetPhone = phoneNumber || req.user?.phone;
+    if (!targetPhone) {
+      return sendValidationError(res, [
+        { field: 'phoneNumber', message: 'Phone number is required' },
+      ]);
+    }
     const result = await verificationService.initiateAadhaarOTP(aadhaarNumber, targetPhone);
     return sendSuccess(res, {
       message: 'OTP initiated successfully',
